@@ -5,7 +5,7 @@
   dnf:
     name: "*"
     state: latest
-  become: yes
+  become: true
 
 - name: Install essential troubleshooting tools
   dnf:
@@ -21,27 +21,27 @@
       - vim
       - tmux
     state: present
-  become: yes
+  become: true
 
 - name: Install Docker for troubleshooting
   dnf:
     name: docker
     state: present
-  become: yes
+  become: true
 
 - name: Start and enable Docker service
   systemd:
     name: docker
     state: started
     enabled: yes
-  become: yes
+  become: true
 
 - name: Add ec2-user to docker group
   user:
     name: ec2-user
     groups: docker
     append: yes
-  become: yes
+  become: true
 
 - name: Create log file for bastion setup completion
   file:
@@ -50,14 +50,14 @@
     owner: root
     group: root
     mode: '0644'
-  become: yes
+  become: true
 
 - name: Log bastion setup completion
   lineinfile:
     path: /var/log/bastion-setup.log
     line: "Bastion host setup completed by Ansible at {{ ansible_date_time.iso8601 }}"
     create: yes
-  become: yes
+  become: true
 
 - name: Display bastion host information
   debug:

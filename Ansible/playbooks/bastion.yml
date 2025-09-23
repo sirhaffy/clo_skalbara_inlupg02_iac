@@ -1,7 +1,7 @@
 ---
 - name: Configure Bastion Host
   hosts: bastion_hosts
-  become: yes
+  become: true
   gather_facts: yes
 
   tasks:

@@ -239,8 +239,8 @@ jobs:
         echo "bastion-ip=$BASTION_IP" >> $GITHUB_OUTPUT
         echo "bastion-ssh=$BASTION_SSH" >> $GITHUB_OUTPUT
 
-        echo "✅ Infrastructure created successfully"
-        echo "🔧 Bastion host: $BASTION_IP"
+        echo "Infrastructure created successfully"
+        echo "Bastion host: $BASTION_IP"
         echo "NEXT: Ansible will configure Docker Swarm..."
 
   # Ansible deployment (after Terraform completes)
@@ -362,32 +362,24 @@ jobs:
         echo "Your application is now live!"
         echo "=================================================="
 
-  # Final deployment summary (runs after everything is complete)
+  # Deployment summary (runs after everything is complete)
   deployment-summary:
     runs-on: ubuntu-latest
     if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'deploy')
     needs: [terraform-apply, ansible-deploy]  # Wait for both jobs
 
     steps:
-    - name: 🎉 Final Deployment Summary
+    - name: Deployment Summary
       run: |
         echo "=================================================="
-        echo "   🚀 DEPLOYMENT COMPLETED SUCCESSFULLY! 🚀"
+        echo "        DEPLOYMENT COMPLETED SUCCESSFULLY!        "
         echo "=================================================="
         echo ""
-        echo "✅ Infrastructure (Terraform): COMPLETED"
-        echo "✅ Configuration (Ansible): COMPLETED"
-        echo "✅ Docker Swarm: READY"
-        echo "✅ Services: DEPLOYED"
+        echo "   Frontend: http://${{ needs.terraform-apply.outputs.alb-dns }}"
+        echo "   API:      ${{ needs.terraform-apply.outputs.api-url }}"
         echo ""
-        echo "🌐 Your application is now live:"
-        echo ""
-        echo "   🎨 Frontend: http://${{ needs.terraform-apply.outputs.alb-dns }}"
-        echo "   🔧 API:      ${{ needs.terraform-apply.outputs.api-url }}"
-        echo ""
-        echo "🔐 For troubleshooting and SSH access:"
-        echo "   🖥️  Bastion Host: ${{ needs.terraform-apply.outputs.bastion-ip }}"
-        echo "   📝 SSH Command: ${{ needs.terraform-apply.outputs.bastion-ssh }}"
+        echo "   Bastion Host: ${{ needs.terraform-apply.outputs.bastion-ip }}"
+        echo "   SSH Command: ${{ needs.terraform-apply.outputs.bastion-ssh }}"
         echo ""
         echo "   From bastion, you can SSH to your Docker Swarm nodes:"
         echo "   ssh ec2-user@<private-ip-of-swarm-node>"
