@@ -161,7 +161,7 @@ jobs:
       run: terraform plan -no-color
       env:
         TF_VAR_ssh_key_name: ${{ secrets.SSH_KEY_NAME }}
-        TF_VAR_github_actions_user_name: ${{ secrets.GITHUB_ACTIONS_USER_NAME }}
+        TF_VAR_GH_ACTIONS_USER_NAME: ${{ secrets.GH_ACTIONS_USER_NAME }}
 
   # Ansible validation (on PRs)
   ansible-check:
@@ -213,7 +213,7 @@ jobs:
       run: terraform plan -out=tfplan
       env:
         TF_VAR_ssh_key_name: ${{ secrets.SSH_KEY_NAME }}
-        TF_VAR_github_actions_user_name: ${{ secrets.GITHUB_ACTIONS_USER_NAME }}
+        TF_VAR_GH_ACTIONS_USER_NAME: ${{ secrets.GH_ACTIONS_USER_NAME }}
 
     - name: Terraform Apply
       working-directory: ./Terraform
@@ -234,20 +234,71 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y ansible
 
-    - name: Create vault password file
-      run: echo "${{ secrets.ANSIBLE_VAULT_PASSWORD }}" > .vault_pass
-
     - name: Setup SSH key
       run: |
         mkdir -p ~/.ssh
         echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/clo_ec2_001
         chmod 600 ~/.ssh/clo_ec2_001
 
+    - name: Generate dynamic Ansible inventory
+      working-directory: ./Terraform
+      run: |
+        # Get EC2 instance IPs from Terraform output
+        MANAGER_IPS=$(terraform output -json swarm_manager_ips | jq -r '.[]')
+        WORKER_IPS=$(terraform output -json swarm_worker_ips | jq -r '.[]')
+
+        # Create dynamic inventory
+        cat > ../Ansible/inventory/dynamic_hosts.yml << EOF
+        ---
+        all:
+          vars:
+            ansible_user: ec2-user
+            ansible_ssh_private_key_file: ~/.ssh/clo_ec2_001
+            ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
+
+        docker_swarm:
+          children:
+            swarm_managers:
+              hosts:
+        EOF
+
+        # Add manager hosts
+        counter=1
+        for ip in $MANAGER_IPS; do
+          cat >> ../Ansible/inventory/dynamic_hosts.yml << EOF
+                swarm-manager-0$counter:
+                  ansible_host: $ip
+                  swarm_role: manager
+                  swarm_primary: $([ $counter -eq 1 ] && echo "true" || echo "false")
+        EOF
+          counter=$((counter + 1))
+        done
+
+        # Add workers section
+        cat >> ../Ansible/inventory/dynamic_hosts.yml << EOF
+
+            swarm_workers:
+              hosts:
+        EOF
+
+        # Add worker hosts
+        counter=1
+        for ip in $WORKER_IPS; do
+          cat >> ../Ansible/inventory/dynamic_hosts.yml << EOF
+                swarm-worker-0$counter:
+                  ansible_host: $ip
+                  swarm_role: worker
+        EOF
+          counter=$((counter + 1))
+        done
+
+        echo "Generated dynamic inventory:"
+        cat ../Ansible/inventory/dynamic_hosts.yml
+
     - name: Run Ansible Playbook
       working-directory: ./Ansible
       run: |
-        ansible-playbook -i inventory/hosts.yml \
-          --vault-password-file ../../.vault_pass \
+        ansible-playbook -i inventory/dynamic_hosts.yml \
           playbooks/docker-swarm.yml
 
   # Destroy infrastructure (manual trigger only)
@@ -280,7 +331,7 @@ jobs:
       run: terraform destroy -auto-approve
       env:
         TF_VAR_ssh_key_name: ${{ secrets.SSH_KEY_NAME }}
-        TF_VAR_github_actions_user_name: ${{ secrets.GITHUB_ACTIONS_USER_NAME }}
+        TF_VAR_GH_ACTIONS_USER_NAME: ${{ secrets.GH_ACTIONS_USER_NAME }}
 
     - name: Cleanup S3 bucket and DynamoDB (optional)
       run: |

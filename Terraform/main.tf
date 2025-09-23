@@ -19,7 +19,7 @@ module "security" {
   ssh_key_name = var.ssh_key_name
 }
 
-# Storage Module (S3)
+# Storage Module (S3) for Terraform state
 module "storage" {
   source = "./storage"
 
