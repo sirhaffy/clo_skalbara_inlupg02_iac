@@ -1,38 +1,46 @@
 ---
+# Docker Swarm setup using CLI commands only (no Python SDK)
+
 - name: Check if Swarm is already initialized
-  docker_swarm_info:
-  register: swarm_info
+  shell: docker info --format '{{.Swarm.LocalNodeState}}'
+  register: swarm_state
   ignore_errors: true
+  changed_when: false
 
 - name: Initialize Docker Swarm on primary manager
-  docker_swarm:
-    state: present
-    advertise_addr: "{{ swarm_advertise_addr }}"
+  shell: docker swarm init --advertise-addr {{ swarm_advertise_addr }}
   when:
     - swarm_primary is defined and swarm_primary
-    - swarm_info.docker_swarm_active is not defined or not swarm_info.docker_swarm_active
+    - swarm_state.stdout != 'active'
   register: swarm_init_result
 
 - name: Get manager join token
-  docker_swarm_info:
-  register: swarm_facts
+  shell: docker swarm join-token manager -q
+  register: manager_token
   when: swarm_primary is defined and swarm_primary
+  changed_when: false
+
+- name: Get worker join token
+  shell: docker swarm join-token worker -q
+  register: worker_token
+  when: swarm_primary is defined and swarm_primary
+  changed_when: false
 
 - name: Save manager join token to dummy host
   add_host:
     name: "swarm_manager_token_holder"
-    token: "{{ swarm_facts.docker_swarm_manager_join_token }}"
+    token: "{{ manager_token.stdout }}"
   when:
     - swarm_primary is defined and swarm_primary
-    - swarm_facts.docker_swarm_manager_join_token is defined
+    - manager_token.stdout is defined
 
 - name: Save worker join token to dummy host
   add_host:
     name: "swarm_worker_token_holder"
-    token: "{{ swarm_facts.docker_swarm_worker_join_token }}"
+    token: "{{ worker_token.stdout }}"
   when:
     - swarm_primary is defined and swarm_primary
-    - swarm_facts.docker_swarm_worker_join_token is defined
+    - worker_token.stdout is defined
 
 - name: Save swarm manager address to dummy host
   add_host:
@@ -41,36 +49,43 @@
   when: swarm_primary is defined and swarm_primary
 
 - name: Join additional managers to swarm
-  docker_swarm:
-    state: join
-    advertise_addr: "{{ swarm_advertise_addr }}"
-    join_token: "{{ hostvars['swarm_manager_token_holder']['token'] }}"
-    remote_addrs:
-      - "{{ hostvars['swarm_manager_address_holder']['address'] }}"
+  shell: docker swarm join --token {{ hostvars['swarm_manager_token_holder']['token'] }} {{ hostvars['swarm_manager_address_holder']['address'] }}
   when:
     - swarm_role == 'manager'
     - swarm_primary is not defined or not swarm_primary
     - hostvars['swarm_manager_token_holder']['token'] is defined
+    - swarm_state.stdout != 'active'
   retries: "{{ swarm_manager_join_retries }}"
   delay: "{{ swarm_manager_join_delay }}"
 
 - name: Join workers to swarm
-  docker_swarm:
-    state: join
-    advertise_addr: "{{ swarm_advertise_addr }}"
-    join_token: "{{ hostvars['swarm_worker_token_holder']['token'] }}"
-    remote_addrs:
-      - "{{ hostvars['swarm_manager_address_holder']['address'] }}"
+  shell: docker swarm join --token {{ hostvars['swarm_worker_token_holder']['token'] }} {{ hostvars['swarm_manager_address_holder']['address'] }}
   when:
     - swarm_role == 'worker'
     - hostvars['swarm_worker_token_holder']['token'] is defined
+    - swarm_state.stdout != 'active'
   retries: "{{ swarm_worker_join_retries }}"
   delay: "{{ swarm_worker_join_delay }}"
 
 - name: Display swarm status
-  docker_node_info:
-  register: node_info
+  shell: docker node ls
+  register: node_status
+  when: swarm_primary is defined and swarm_primary
+  changed_when: false
 
-- name: Show node information
+- name: Show swarm node information
   debug:
-    msg: "Node {{ ansible_hostname }} is {{ node_info.docker_swarm_node_info.Status.State }} in swarm"
+    msg: "{{ node_status.stdout_lines }}"
+  when: 
+    - swarm_primary is defined and swarm_primary
+    - node_status.stdout_lines is defined
+
+- name: Get current node info
+  shell: docker info --format '{{.Swarm.NodeID}} {{.Swarm.LocalNodeState}}'
+  register: current_node_info
+  changed_when: false
+
+- name: Show current node status
+  debug:
+    msg: "Node {{ ansible_hostname }} is {{ current_node_info.stdout.split()[1] }} in swarm (ID: {{ current_node_info.stdout.split()[0] }})"
+  when: current_node_info.stdout is defined

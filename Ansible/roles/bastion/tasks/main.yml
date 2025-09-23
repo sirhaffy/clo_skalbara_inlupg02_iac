@@ -1,73 +1,14 @@
 ---
-# tasks file for bastion host configuration
+# Minimal bastion host configuration - SSH jump server only
 
-- name: Update all packages with dnf
+- name: Update system packages
   dnf:
     name: "*"
     state: latest
+    update_cache: true
   become: true
 
-- name: Install essential troubleshooting tools
-  dnf:
-    name:
-      - htop
-      - tree
-      - wget
-      - curl
-      - telnet
-      - nc
-      - nmap-ncat
-      - git
-      - vim
-      - tmux
-    state: present
-  become: true
-
-- name: Install Docker for troubleshooting
-  dnf:
-    name: docker
-    state: present
-  become: true
-
-- name: Start and enable Docker service
-  systemd:
-    name: docker
-    state: started
-    enabled: yes
-  become: true
-
-- name: Add ec2-user to docker group
-  user:
-    name: ec2-user
-    groups: docker
-    append: yes
-  become: true
-
-- name: Create log file for bastion setup completion
-  file:
-    path: /var/log/bastion-setup.log
-    state: touch
-    owner: root
-    group: root
-    mode: '0644'
-  become: true
-
-- name: Log bastion setup completion
-  lineinfile:
-    path: /var/log/bastion-setup.log
-    line: "Bastion host setup completed by Ansible at {{ ansible_date_time.iso8601 }}"
-    create: yes
-  become: true
-
-- name: Display bastion host information
-  debug:
-    msg:
-      - "Bastion host configured successfully!"
-      - "Public IP: {{ ansible_default_ipv4.address }}"
-      - "Hostname: {{ ansible_hostname }}"
-      - "Available tools: htop, tree, wget, curl, telnet, nc, nmap, git, vim, tmux, docker"
-
-# SSH Security Hardening
+# SSH Security Hardening ONLY
 - name: Configure SSH security settings
   lineinfile:
     path: /etc/ssh/sshd_config
@@ -96,13 +37,14 @@
   copy:
     content: |
       ================================================================================
-                              AUTHORIZED ACCESS ONLY
+                              BASTION HOST - AUTHORIZED ACCESS ONLY
       ================================================================================
 
       This system is for authorized users only. All activities are monitored
       and logged. Unauthorized access is strictly prohibited.
 
       Bastion Host - {{ inventory_hostname }}
+      SSH Jump Server Only - No additional tools
       Managed by Ansible
       ================================================================================
     dest: /etc/ssh/ssh_banner
@@ -127,16 +69,39 @@
     enabled: true
   become: true
 
-- name: Display SSH security summary
+- name: Create completion log
+  file:
+    path: /var/log/bastion-setup.log
+    state: touch
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+
+- name: Log bastion setup completion
+  lineinfile:
+    path: /var/log/bastion-setup.log
+    line: "Minimal bastion host setup completed by Ansible at {{ ansible_date_time.iso8601 }}"
+    create: true
+  become: true
+
+- name: Display bastion configuration summary
   debug:
     msg:
       - "==============================================="
-      - "         SSH SECURITY CONFIGURED"
+      - "         MINIMAL BASTION HOST READY"
       - "==============================================="
-      - "✅ Root login: DISABLED"
-      - "✅ Password authentication: DISABLED"
-      - "✅ Public key authentication: ENABLED"
-      - "✅ Only ec2-user allowed"
-      - "✅ SSH banner configured"
-      - "✅ Connection timeouts configured"
+      - "Host: {{ inventory_hostname }}"
+      - "Public IP: {{ ansible_default_ipv4.address }}"
+      - "SSH Access: ssh -i ~/.ssh/clo_ec2_001 ec2-user@{{ ansible_default_ipv4.address }}"
+      - ""
+      - "SSH security configured"
+      - "Root login disabled"
+      - "Password auth disabled"
+      - "Only key-based auth"
+      - "NO Python installed"
+      - "NO extra tools installed"
+      - ""
+      - "Purpose: SSH jump server ONLY"
+      - "From here, SSH to Docker Swarm nodes"
       - "==============================================="
