@@ -187,6 +187,11 @@ jobs:
     runs-on: ubuntu-latest
     if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'deploy')
     needs: setup-backend
+    outputs:
+      alb-dns: ${{ steps.save-urls.outputs.alb-dns }}
+      api-url: ${{ steps.save-urls.outputs.api-url }}
+      bastion-ip: ${{ steps.save-urls.outputs.bastion-ip }}
+      bastion-ssh: ${{ steps.save-urls.outputs.bastion-ssh }}
 
     steps:
     - name: Checkout code
@@ -219,25 +224,24 @@ jobs:
       working-directory: ./Terraform
       run: terraform apply -auto-approve tfplan
 
-    - name: Infrastructure Deployment Summary (Terraform)
+    - name: Save infrastructure URLs
+      id: save-urls
       working-directory: ./Terraform
       run: |
-        echo "=================================================="
-        echo "      TERRAFORM DEPLOYMENT COMPLETED"
-        echo "=================================================="
-        echo ""
-
-        # Get essential URLs only
+        # Get URLs and save as step outputs
         ALB_DNS=$(terraform output -raw alb_dns_name 2>/dev/null || echo "Not available")
         API_URL=$(terraform output -raw api_gateway_url 2>/dev/null || echo "Not available")
+        BASTION_IP=$(terraform output -raw bastion_public_ip 2>/dev/null || echo "Not available")
+        BASTION_SSH=$(terraform output -raw bastion_ssh_command 2>/dev/null || echo "Not available")
 
-        echo "Essential Access URLs:"
-        echo "   Frontend: http://$ALB_DNS"
-        echo "   API:      $API_URL"
-        echo ""
+        echo "alb-dns=$ALB_DNS" >> $GITHUB_OUTPUT
+        echo "api-url=$API_URL" >> $GITHUB_OUTPUT
+        echo "bastion-ip=$BASTION_IP" >> $GITHUB_OUTPUT
+        echo "bastion-ssh=$BASTION_SSH" >> $GITHUB_OUTPUT
 
-        echo "NEXT: Ansible will configure Docker Swarm and deploy services..."
-        echo "=================================================="
+        echo "✅ Infrastructure created successfully"
+        echo "🔧 Bastion host: $BASTION_IP"
+        echo "NEXT: Ansible will configure Docker Swarm..."
 
   # Ansible deployment (after Terraform completes)
   ansible-deploy:
@@ -266,6 +270,7 @@ jobs:
         # Get EC2 instance IPs from Terraform output
         MANAGER_IPS=$(terraform output -json swarm_manager_ips | jq -r '.[]')
         WORKER_IPS=$(terraform output -json swarm_worker_ips | jq -r '.[]')
+        BASTION_IP=$(terraform output -raw bastion_public_ip)
 
         # Create dynamic inventory
         cat > ../Ansible/inventory/dynamic_hosts.yml << EOF
@@ -275,6 +280,12 @@ jobs:
             ansible_user: ec2-user
             ansible_ssh_private_key_file: ~/.ssh/clo_ec2_001
             ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
+
+        bastion_hosts:
+          hosts:
+            bastion-01:
+              ansible_host: $BASTION_IP
+              bastion_role: primary
 
         docker_swarm:
           children:
@@ -315,9 +326,17 @@ jobs:
         echo "Generated dynamic inventory:"
         cat ../Ansible/inventory/dynamic_hosts.yml
 
-    - name: Run Ansible Playbook
+    - name: Configure Bastion Host
       working-directory: ./Ansible
       run: |
+        echo "Configuring bastion host..."
+        ansible-playbook -i inventory/dynamic_hosts.yml \
+          playbooks/bastion.yml
+
+    - name: Run Docker Swarm Playbook
+      working-directory: ./Ansible
+      run: |
+        echo "Configuring Docker Swarm cluster..."
         ansible-playbook -i inventory/dynamic_hosts.yml \
           playbooks/docker-swarm.yml
 
@@ -341,7 +360,41 @@ jobs:
         echo "   - EC2 instance IPs"
         echo ""
         echo "Your application is now live!"
-        echo "=================================================="  # Destroy infrastructure (manual trigger only)
+        echo "=================================================="
+
+  # Final deployment summary (runs after everything is complete)
+  deployment-summary:
+    runs-on: ubuntu-latest
+    if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'deploy')
+    needs: [terraform-apply, ansible-deploy]  # Wait for both jobs
+
+    steps:
+    - name: 🎉 Final Deployment Summary
+      run: |
+        echo "=================================================="
+        echo "   🚀 DEPLOYMENT COMPLETED SUCCESSFULLY! 🚀"
+        echo "=================================================="
+        echo ""
+        echo "✅ Infrastructure (Terraform): COMPLETED"
+        echo "✅ Configuration (Ansible): COMPLETED"
+        echo "✅ Docker Swarm: READY"
+        echo "✅ Services: DEPLOYED"
+        echo ""
+        echo "🌐 Your application is now live:"
+        echo ""
+        echo "   🎨 Frontend: http://${{ needs.terraform-apply.outputs.alb-dns }}"
+        echo "   🔧 API:      ${{ needs.terraform-apply.outputs.api-url }}"
+        echo ""
+        echo "🔐 For troubleshooting and SSH access:"
+        echo "   🖥️  Bastion Host: ${{ needs.terraform-apply.outputs.bastion-ip }}"
+        echo "   📝 SSH Command: ${{ needs.terraform-apply.outputs.bastion-ssh }}"
+        echo ""
+        echo "   From bastion, you can SSH to your Docker Swarm nodes:"
+        echo "   ssh ec2-user@<private-ip-of-swarm-node>"
+        echo ""
+        echo "=================================================="
+
+  # Destroy infrastructure (manual trigger only)
   destroy:
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'

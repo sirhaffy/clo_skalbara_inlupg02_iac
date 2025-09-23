@@ -17,3 +17,13 @@ output "alb_sg_name" {
   description = "Name of the ALB security group"
   value       = aws_security_group.alb_sg.name
 }
+
+output "bastion_sg_id" {
+  description = "ID of the bastion security group"
+  value       = aws_security_group.bastion_sg.id
+}
+
+output "bastion_sg_name" {
+  description = "Name of the bastion security group"
+  value       = aws_security_group.bastion_sg.name
+}

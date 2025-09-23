@@ -45,3 +45,19 @@ output "alb_dns_name" {
   description = "DNS name of the Application Load Balancer"
   value       = module.docker_swarm.alb_dns_name
 }
+
+# Bastion Host outputs
+output "bastion_public_ip" {
+  description = "Public IP address of the bastion host"
+  value       = module.bastion.bastion_public_ip
+}
+
+output "bastion_ssh_command" {
+  description = "SSH command to connect to bastion host"
+  value       = module.bastion.ssh_command
+}
+
+output "bastion_public_dns" {
+  description = "Public DNS name of the bastion host"
+  value       = module.bastion.bastion_public_dns
+}

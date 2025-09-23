@@ -49,3 +49,14 @@ module "lambda" {
   environment              = var.environment
   GH_ACTIONS_USER_NAME = var.GH_ACTIONS_USER_NAME
 }
+
+# Bastion Host Module (for SSH access and troubleshooting)
+module "bastion" {
+  source = "./bastion"
+
+  project_name      = var.project_name
+  environment       = var.environment
+  ssh_key_name      = var.ssh_key_name
+  bastion_sg_id     = module.security.bastion_sg_id
+  public_subnet_id  = module.networking.public_subnet_ids[0]  # Use first public subnet
+}

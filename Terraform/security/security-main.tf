@@ -15,13 +15,13 @@ resource "aws_security_group" "web_sg" {
     security_groups = [aws_security_group.alb_sg.id]
   }
 
-  # SSH access for administration (restrict to your IP in production)
+  # SSH access from bastion host only
   ingress {
-    description = "SSH"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]  # TODO: Restrict to your IP
+    description     = "SSH from bastion"
+    from_port       = 22
+    to_port         = 22
+    protocol        = "tcp"
+    security_groups = [aws_security_group.bastion_sg.id]
   }
 
   # Docker Swarm manager port (internal communication)
@@ -103,5 +103,36 @@ resource "aws_security_group" "alb_sg" {
     Name        = "${var.project_name}-alb-sg"
     Environment = var.environment
     Purpose     = "Application Load Balancer Security Group"
+  }
+}
+
+# Bastion Host Security Group
+resource "aws_security_group" "bastion_sg" {
+  name_prefix = "${var.project_name}-bastion-sg"
+  description = "Security group for bastion host"
+  vpc_id      = var.vpc_id
+
+  # SSH access from anywhere (consider restricting to your IP range)
+  ingress {
+    description = "SSH from anywhere"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]  # TODO: Restrict to your IP range for better security
+  }
+
+  # All outbound traffic
+  egress {
+    description = "All outbound traffic"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name        = "${var.project_name}-bastion-sg"
+    Environment = var.environment
+    Purpose     = "Bastion Host Security Group"
   }
 }
