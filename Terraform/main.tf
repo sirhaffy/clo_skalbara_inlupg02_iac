@@ -50,7 +50,7 @@ module "lambda" {
   GH_ACTIONS_USER_NAME      = var.GH_ACTIONS_USER_NAME
 }
 
-# Bastion Host Module (for SSH access and troubleshooting)
+# Bastion Host
 module "bastion" {
   source = "./bastion"
 
