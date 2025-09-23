@@ -1,4 +1,4 @@
-# The main files outputs to be used by other modules or for information to the user.
+# The main files outputs to be used by other modules or for information to the user
 output "vpc_id" {
   description = "VPC ID"
   value       = module.networking.vpc_id # Example, Received from the networking modules output.
