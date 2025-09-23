@@ -1,0 +1,76 @@
+---
+- name: Check if Swarm is already initialized
+  docker_swarm_info:
+  register: swarm_info
+  ignore_errors: true
+
+- name: Initialize Docker Swarm on primary manager
+  docker_swarm:
+    state: present
+    advertise_addr: "{{ swarm_advertise_addr }}"
+  when:
+    - swarm_primary is defined and swarm_primary
+    - swarm_info.docker_swarm_active is not defined or not swarm_info.docker_swarm_active
+  register: swarm_init_result
+
+- name: Get manager join token
+  docker_swarm_info:
+  register: swarm_facts
+  when: swarm_primary is defined and swarm_primary
+
+- name: Save manager join token to dummy host
+  add_host:
+    name: "swarm_manager_token_holder"
+    token: "{{ swarm_facts.docker_swarm_manager_join_token }}"
+  when:
+    - swarm_primary is defined and swarm_primary
+    - swarm_facts.docker_swarm_manager_join_token is defined
+
+- name: Save worker join token to dummy host
+  add_host:
+    name: "swarm_worker_token_holder"
+    token: "{{ swarm_facts.docker_swarm_worker_join_token }}"
+  when:
+    - swarm_primary is defined and swarm_primary
+    - swarm_facts.docker_swarm_worker_join_token is defined
+
+- name: Save swarm manager address to dummy host
+  add_host:
+    name: "swarm_manager_address_holder"
+    address: "{{ swarm_advertise_addr }}:2377"
+  when: swarm_primary is defined and swarm_primary
+
+- name: Join additional managers to swarm
+  docker_swarm:
+    state: join
+    advertise_addr: "{{ swarm_advertise_addr }}"
+    join_token: "{{ hostvars['swarm_manager_token_holder']['token'] }}"
+    remote_addrs:
+      - "{{ hostvars['swarm_manager_address_holder']['address'] }}"
+  when:
+    - swarm_role == 'manager'
+    - swarm_primary is not defined or not swarm_primary
+    - hostvars['swarm_manager_token_holder']['token'] is defined
+  retries: "{{ swarm_manager_join_retries }}"
+  delay: "{{ swarm_manager_join_delay }}"
+
+- name: Join workers to swarm
+  docker_swarm:
+    state: join
+    advertise_addr: "{{ swarm_advertise_addr }}"
+    join_token: "{{ hostvars['swarm_worker_token_holder']['token'] }}"
+    remote_addrs:
+      - "{{ hostvars['swarm_manager_address_holder']['address'] }}"
+  when:
+    - swarm_role == 'worker'
+    - hostvars['swarm_worker_token_holder']['token'] is defined
+  retries: "{{ swarm_worker_join_retries }}"
+  delay: "{{ swarm_worker_join_delay }}"
+
+- name: Display swarm status
+  docker_node_info:
+  register: node_info
+
+- name: Show node information
+  debug:
+    msg: "Node {{ ansible_hostname }} is {{ node_info.docker_swarm_node_info.Status.State }} in swarm"

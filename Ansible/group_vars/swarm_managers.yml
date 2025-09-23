@@ -1,0 +1,4 @@
+---
+# Manager-specific configuration
+swarm_manager_join_retries: 3
+swarm_manager_join_delay: 10

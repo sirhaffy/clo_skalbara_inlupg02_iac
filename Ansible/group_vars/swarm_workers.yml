@@ -1,0 +1,4 @@
+---
+# Worker-specific configuration
+swarm_worker_join_retries: 3
+swarm_worker_join_delay: 5

@@ -1,0 +1,154 @@
+---
+- name: Setup Docker Swarm Cluster
+  hosts: docker_swarm
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Wait for system to be ready
+      wait_for_connection:
+        timeout: 300
+
+    - name: Gather facts
+      setup:
+
+  roles:
+    - docker
+
+  post_tasks:
+    - name: Verify Docker installation
+      command: docker --version
+      register: docker_version
+      changed_when: false
+
+    - name: Display Docker version
+      debug:
+        msg: "Docker version: {{ docker_version.stdout }}"
+
+- name: Initialize Docker Swarm
+  hosts: swarm_managers
+  gather_facts: true
+  serial: 1
+
+  roles:
+    - docker_swarm
+
+- name: Join workers to Docker Swarm
+  hosts: swarm_workers
+  gather_facts: true
+
+  roles:
+    - docker_swarm
+
+- name: Display Swarm Status
+  hosts: swarm_managers[0]
+  gather_facts: false
+
+  tasks:
+    - name: Get swarm nodes
+      command: docker node ls
+      register: swarm_nodes
+      changed_when: false
+
+    - name: Display swarm nodes
+      debug:
+        msg: "{{ swarm_nodes.stdout_lines }}"
+
+- name: Deploy Watchtower and Application Services
+  hosts: swarm_managers[0]
+  gather_facts: false
+  vars:
+    app_image: "sirhaffy/clo-fresva-app:latest"
+    watchtower_interval: 300  # Check every 5 minutes
+
+  tasks:
+    - name: Create app network
+      command: >
+        docker network create
+        --driver overlay
+        --attachable
+        app-network
+      register: network_result
+      failed_when:
+        - network_result.rc != 0
+        - "'already exists' not in network_result.stderr"
+      changed_when: network_result.rc == 0
+
+    - name: Deploy Watchtower service
+      command: >
+        docker service create
+        --name watchtower
+        --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock
+        --constraint 'node.role==manager'
+        --env WATCHTOWER_POLL_INTERVAL={{ watchtower_interval }}
+        --env WATCHTOWER_CLEANUP=true
+        --env WATCHTOWER_INCLUDE_RESTARTING=true
+        --env WATCHTOWER_ROLLING_RESTART=true
+        --env WATCHTOWER_TIMEOUT=60s
+        --env WATCHTOWER_LOG_LEVEL=info
+        --label com.centurylinklabs.watchtower.enable=false
+        --restart-condition on-failure
+        --restart-max-attempts 3
+        containrrr/watchtower:latest
+        --label-enable
+      register: watchtower_result
+      failed_when:
+        - watchtower_result.rc != 0
+        - "'already exists' not in watchtower_result.stderr"
+      changed_when: watchtower_result.rc == 0
+
+    - name: Deploy application service
+      command: >
+        docker service create
+        --name clo-fresva-app
+        --replicas 3
+        --network app-network
+        --publish 80:3000
+        --env NODE_ENV=production
+        --env LOAD_BALANCED=true
+        --label com.centurylinklabs.watchtower.enable=true
+        --update-config parallelism=1,delay=10s,failure-action=rollback,order=start-first
+        --rollback-config parallelism=1,delay=10s
+        --restart-condition on-failure
+        --restart-max-attempts 3
+        --health-cmd "curl -f http://localhost:3000/api/health || exit 1"
+        --health-interval 30s
+        --health-retries 3
+        --health-timeout 10s
+        --health-start-period 40s
+        {{ app_image }}
+      register: app_result
+      failed_when:
+        - app_result.rc != 0
+        - "'already exists' not in app_result.stderr"
+      changed_when: app_result.rc == 0
+
+    - name: Wait for application to be healthy
+      uri:
+        url: "http://{{ ansible_default_ipv4.address }}/api/health"
+        method: GET
+        status_code: 200
+      register: health_check
+      until: health_check.status == 200
+      retries: 12
+      delay: 10
+      ignore_errors: true
+
+    - name: Display deployment status
+      debug:
+        msg: |
+          🚀 Deployment completed!
+          - Watchtower: {{ 'Created' if watchtower_result.changed else 'Already exists' }}
+          - App Service: {{ 'Created' if app_result.changed else 'Already exists' }}
+          - Health Check: {{ 'Healthy' if health_check.status == 200 else 'Failed' }}
+          - Application URL: http://{{ ansible_default_ipv4.address }}
+          - Watchtower will check for updates every {{ watchtower_interval }}s
+
+    - name: Show service status
+      command: docker service ls
+      register: services
+      changed_when: false
+
+    - name: Display services
+      debug:
+        msg: "{{ services.stdout_lines }}"
