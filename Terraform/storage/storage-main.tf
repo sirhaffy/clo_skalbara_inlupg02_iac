@@ -23,16 +23,14 @@ resource "aws_s3_bucket_versioning" "app_bucket" {
   }
 }
 
-resource "aws_s3_bucket_encryption" "app_bucket" {
+resource "aws_s3_bucket_server_side_encryption_configuration" "app_bucket" {
   count = var.environment == "prod" ? 1 : 0
 
   bucket = aws_s3_bucket.app_bucket[0].id
 
-  server_side_encryption_configuration {
-    rule {
-      apply_server_side_encryption_by_default {
-        sse_algorithm = "AES256"
-      }
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
     }
   }
 }
