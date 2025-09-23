@@ -306,7 +306,6 @@ jobs:
           vars:
             ansible_user: ec2-user
             ansible_ssh_private_key_file: ~/.ssh/clo_ec2_001
-            ansible_ssh_common_args: '-o ProxyJump=ec2-user@$BASTION_IP'
 
         bastion_hosts:
           hosts:
@@ -314,6 +313,8 @@ jobs:
               ansible_host: $BASTION_IP
 
         docker_swarm:
+          vars:
+            ansible_ssh_common_args: '-o ProxyJump=ec2-user@$BASTION_IP'
           children:
             swarm_managers:
               hosts:
