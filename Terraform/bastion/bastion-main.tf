@@ -23,6 +23,7 @@ resource "aws_instance" "bastion" {
   associate_public_ip_address = true
 
   # No user_data - let Ansible handle all configuration
+  # SSH key is automatically deployed by AWS to ~/.ssh/authorized_keys
 
   tags = {
     Name        = "${var.project_name}-${var.environment}-bastion"
