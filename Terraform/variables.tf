@@ -14,7 +14,7 @@ variable "environment" {
 variable "project_name" {
   description = "Project name"
   type        = string
-  default     = "clofresva_skalbara_upg02"
+  default     = "clofresva-skalbara-upg02"
 }
 
 # Network Configuration
