@@ -36,7 +36,7 @@ output "ecr_repository_url" {
 }
 
 output "github_actions_user" {
-  description = "GitHub Actions IAM user name (your existing user)"
+  description = "GitHub Actions IAM user name"
   value       = module.lambda.github_actions_user_name
 }
 

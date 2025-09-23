@@ -4,14 +4,14 @@ name: 'Infrastructure Deploy (Terraform + Ansible)'
 on:
   pull_request:
     paths:
-      - 'IaC/Terraform/**'
-      - 'IaC/Ansible/**'
+      - 'Terraform/**'
+      - 'Ansible/**'
   push:
     branches:
       - main
     paths:
-      - 'IaC/Terraform/**'
-      - 'IaC/Ansible/**'
+      - 'Terraform/**'
+      - 'Ansible/**'
   workflow_dispatch:
     inputs:
       action:
