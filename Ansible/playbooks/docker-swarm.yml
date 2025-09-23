@@ -97,7 +97,64 @@
         - "'already exists' not in watchtower_result.stderr"
       changed_when: watchtower_result.rc == 0
 
-    - name: Deploy application service
+    - name: Check if app image exists
+      command: docker manifest inspect {{ app_image }}
+      register: image_check
+      failed_when: false
+      changed_when: false
+
+    - name: Deploy maintenance page (fallback)
+      command: >
+        docker service create
+        --name maintenance-page
+        --replicas 2
+        --network app-network
+        --publish 80:80
+        --label com.centurylinklabs.watchtower.enable=false
+        --restart-condition on-failure
+        --restart-max-attempts 3
+        --mount type=tmpfs,destination=/usr/share/nginx/html
+        nginx:alpine
+      register: maintenance_result
+      when: image_check.rc != 0
+      failed_when: false
+      changed_when: maintenance_result.rc == 0
+
+    - name: Create custom maintenance HTML
+      command: >
+        docker exec $(docker service ps maintenance-page --format "table {{.ID}}" --no-trunc | tail -n +2 | head -1)
+        sh -c 'cat > /usr/share/nginx/html/index.html << EOF
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Coming Soon - CLO Fresva App</title>
+            <style>
+                body { font-family: Arial, sans-serif; text-align: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; margin: 0; padding: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+                .container { max-width: 600px; padding: 2rem; }
+                h1 { font-size: 3rem; margin-bottom: 1rem; }
+                p { font-size: 1.2rem; margin-bottom: 2rem; }
+                .spinner { border: 4px solid rgba(255,255,255,0.3); border-radius: 50%; border-top: 4px solid white; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto; }
+                @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>🚀 Coming Soon</h1>
+                <div class="spinner"></div>
+                <p>We are preparing something amazing for you!</p>
+                <p>Our application is being deployed and will be available shortly.</p>
+                <small>CLO Fresva - Skalbara Molnapplikationer</small>
+            </div>
+        </body>
+        </html>
+        EOF'
+      when: image_check.rc != 0 and maintenance_result.rc == 0
+      failed_when: false
+      changed_when: false
+
+    - name: Deploy application service (if image exists)
       command: >
         docker service create
         --name clo-fresva-app
@@ -118,9 +175,39 @@
         --health-start-period 40s
         {{ app_image }}
       register: app_result
-      failed_when:
-        - app_result.rc != 0
-        - "'already exists' not in app_result.stderr"
+      when: image_check.rc == 0
+      failed_when: false
+      changed_when: app_result.rc == 0
+
+    - name: Remove maintenance page if main app is running
+      command: docker service rm maintenance-page
+      when: image_check.rc == 0 and app_result.rc == 0
+      failed_when: false
+      changed_when: false
+
+    - name: Display deployment status
+      debug:
+        msg: |
+          {% if image_check.rc != 0 %}
+          ❌ Image {{ app_image }} not found
+          💡 Deploy your frontend app first to make this image available
+          📝 Expected behavior: ALB will show 502 until frontend is deployed
+          {% elif app_result.rc == 0 %}
+          ✅ Application service deployed successfully
+          🌐 App running on port 80 (maps to container port 3000)
+          � Health check: curl http://localhost:3000/api/health
+          {% else %}
+          ⚠️  Service deployment failed: {{ app_result.stderr | default('Unknown error') }}
+          {% endif %}
+
+    - name: Show service status
+      command: docker service ls
+      register: service_list
+      changed_when: false
+
+    - name: Display services
+      debug:
+        msg: "{{ service_list.stdout_lines }}"
       changed_when: app_result.rc == 0
 
     - name: Wait for application to be healthy
