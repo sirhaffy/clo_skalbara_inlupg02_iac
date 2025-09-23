@@ -347,56 +347,6 @@ jobs:
         echo "Generated dynamic inventory:"
         cat ../Ansible/inventory/dynamic_hosts.yml
 
-    - name: Test SSH connectivity to bastion
-      working-directory: ./Ansible
-      env:
-        SSH_AUTH_SOCK: /tmp/ssh_agent.sock
-      run: |
-        echo "Testing SSH to bastion host..."
-        BASTION_IP=$(cd ../Terraform && terraform output -raw bastion_public_ip)
-        echo "Bastion IP: $BASTION_IP"
-
-        # Start SSH agent for this step
-        eval "$(ssh-agent -s)"
-        ssh-add ~/.ssh/clo_ec2_001
-
-        # Test direct SSH to bastion
-        ssh -i ~/.ssh/clo_ec2_001 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 ec2-user@$BASTION_IP "echo 'Bastion SSH works!' && hostname && whoami"
-
-    - name: Test SSH connectivity to Docker Swarm nodes
-      working-directory: ./Ansible
-      env:
-        SSH_AUTH_SOCK: /tmp/ssh_agent.sock
-      run: |
-        echo "Testing SSH connectivity to all Docker Swarm nodes via bastion..."
-        BASTION_IP=$(cd ../Terraform && terraform output -raw bastion_public_ip)
-
-        # Start SSH agent for this step
-        eval "$(ssh-agent -s)"
-        ssh-add ~/.ssh/clo_ec2_001
-
-        # Get node IPs from Terraform
-        MANAGER_IP=$(cd ../Terraform && terraform output -raw manager_private_ip)
-        WORKER1_IP=$(cd ../Terraform && terraform output -raw worker1_private_ip)
-        WORKER2_IP=$(cd ../Terraform && terraform output -raw worker2_private_ip)
-
-        echo "Bastion IP: $BASTION_IP"
-        echo "Manager IP: $MANAGER_IP"
-        echo "Worker1 IP: $WORKER1_IP"
-        echo "Worker2 IP: $WORKER2_IP"
-
-        # Test SSH to each node via bastion with agent forwarding
-        for NODE_IP in $MANAGER_IP $WORKER1_IP $WORKER2_IP; do
-          echo "Testing SSH to $NODE_IP via bastion..."
-          ssh -A -i ~/.ssh/clo_ec2_001 \
-              -o StrictHostKeyChecking=no \
-              -o UserKnownHostsFile=/dev/null \
-              -o ConnectTimeout=10 \
-              -o ProxyJump=ec2-user@$BASTION_IP \
-              ec2-user@$NODE_IP \
-              "echo 'SSH to $NODE_IP works!' && hostname && whoami" || echo "SSH to $NODE_IP failed"
-        done
-
     - name: Configure Bastion Host
       working-directory: ./Ansible
       env:
@@ -422,6 +372,23 @@ jobs:
 
         ansible-playbook -i inventory/dynamic_hosts.yml \
           playbooks/docker-swarm.yml
+
+    - name: Test Docker Swarm Status
+      working-directory: ./Ansible
+      env:
+        SSH_AUTH_SOCK: /tmp/ssh_agent.sock
+      run: |
+        echo "Testing Docker Swarm cluster status..."
+        # Start SSH agent for this step
+        eval "$(ssh-agent -s)"
+        ssh-add ~/.ssh/clo_ec2_001
+
+        BASTION_IP=$(cd ../Terraform && terraform output -raw bastion_public_ip)
+        MANAGER_IP=$(cd ../Terraform && terraform output -raw manager_private_ip)
+
+        echo "Checking Docker Swarm on manager node..."
+        ssh -i ~/.ssh/clo_ec2_001 -o ProxyJump=ec2-user@$BASTION_IP ec2-user@$MANAGER_IP \
+          "docker node ls && echo 'Docker Swarm is running!'" || echo "Docker Swarm test failed"
 
     - name: Infrastructure Deployment Summary
       run: |

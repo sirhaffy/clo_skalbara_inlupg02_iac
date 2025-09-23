@@ -61,3 +61,19 @@ output "bastion_public_dns" {
   description = "Public DNS name of the bastion host"
   value       = module.bastion.bastion_public_dns
 }
+
+# Individual node IPs for testing
+output "manager_private_ip" {
+  description = "Private IP of the first manager node"
+  value       = length(module.docker_swarm.swarm_manager_private_ips) > 0 ? module.docker_swarm.swarm_manager_private_ips[0] : null
+}
+
+output "worker1_private_ip" {
+  description = "Private IP of the first worker node"
+  value       = length(module.docker_swarm.swarm_worker_private_ips) > 0 ? module.docker_swarm.swarm_worker_private_ips[0] : null
+}
+
+output "worker2_private_ip" {
+  description = "Private IP of the second worker node"
+  value       = length(module.docker_swarm.swarm_worker_private_ips) > 1 ? module.docker_swarm.swarm_worker_private_ips[1] : null
+}
