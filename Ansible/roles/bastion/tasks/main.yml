@@ -31,6 +31,8 @@
     - { regexp: '^#?ClientAliveCountMax', line: 'ClientAliveCountMax 2' }
     - { regexp: '^#?AllowUsers', line: 'AllowUsers ec2-user' }
     - { regexp: '^#?Protocol', line: 'Protocol 2' }
+    - { regexp: '^#?AllowAgentForwarding', line: 'AllowAgentForwarding yes' }
+    - { regexp: '^#?ForwardAgent', line: 'ForwardAgent yes' }
   notify: restart sshd
 
 - name: Set SSH banner

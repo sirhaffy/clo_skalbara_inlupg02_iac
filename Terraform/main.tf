@@ -41,7 +41,7 @@ module "docker_swarm" {
   ssh_key_name     = var.ssh_key_name
 }
 
-# Lambda Module (API + DynamoDB)
+# Lambda Module (API)
 module "lambda" {
   source = "./lambda"
 
