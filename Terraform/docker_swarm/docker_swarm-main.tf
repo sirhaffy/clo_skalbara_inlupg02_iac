@@ -5,7 +5,7 @@ resource "aws_instance" "swarm_manager" {
   count = 1  # Single manager for simplicity (can be increased for HA)
 
   ami                    = data.aws_ami.amazon_linux.id
-  instance_type          = "t3.micro"  # Free tier eligible
+  instance_type          = "t3.small"
   key_name              = var.ssh_key_name
   subnet_id             = var.private_subnets[0]
   vpc_security_group_ids = [var.web_sg_id]
@@ -25,7 +25,7 @@ resource "aws_instance" "swarm_worker" {
   count = 2  # Two workers for load distribution
 
   ami                    = data.aws_ami.amazon_linux.id
-  instance_type          = "t3.micro"  # Free tier eligible
+  instance_type          = "t3.small"
   key_name              = var.ssh_key_name
   subnet_id             = var.private_subnets[count.index % length(var.private_subnets)]
   vpc_security_group_ids = [var.web_sg_id]

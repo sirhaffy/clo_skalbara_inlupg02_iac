@@ -17,7 +17,7 @@ data "aws_ami" "amazon_linux" {
 # Bastion Host EC2 Instance
 resource "aws_instance" "bastion" {
   ami                         = data.aws_ami.amazon_linux.id
-  instance_type              = "t2.micro"  # Free tier eligible
+  instance_type              = "t3.small"
   key_name                   = var.ssh_key_name
   vpc_security_group_ids     = [var.bastion_sg_id]
   subnet_id                  = var.public_subnet_id
