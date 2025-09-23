@@ -145,19 +145,19 @@ jobs:
         aws-region: ${{ env.AWS_REGION }}
 
     - name: Terraform Init
-      working-directory: ./IaC/Terraform
+      working-directory: ./Terraform
       run: terraform init
 
     - name: Terraform Format Check
-      working-directory: ./IaC/Terraform
+      working-directory: ./Terraform
       run: terraform fmt -check
 
     - name: Terraform Validate
-      working-directory: ./IaC/Terraform
+      working-directory: ./Terraform
       run: terraform validate
 
     - name: Terraform Plan
-      working-directory: ./IaC/Terraform
+      working-directory: ./Terraform
       run: terraform plan -no-color
       env:
         TF_VAR_ssh_key_name: ${{ secrets.SSH_KEY_NAME }}
@@ -178,7 +178,7 @@ jobs:
         sudo apt-get install -y ansible
 
     - name: Ansible Syntax Check
-      working-directory: ./IaC/Ansible
+      working-directory: ./Ansible
       run: |
         ansible-playbook --syntax-check playbooks/docker-swarm.yml
 
@@ -205,18 +205,18 @@ jobs:
         aws-region: ${{ env.AWS_REGION }}
 
     - name: Terraform Init
-      working-directory: ./IaC/Terraform
+      working-directory: ./Terraform
       run: terraform init
 
     - name: Terraform Plan
-      working-directory: ./IaC/Terraform
+      working-directory: ./Terraform
       run: terraform plan -out=tfplan
       env:
         TF_VAR_ssh_key_name: ${{ secrets.SSH_KEY_NAME }}
         TF_VAR_github_actions_user_name: ${{ secrets.GITHUB_ACTIONS_USER_NAME }}
 
     - name: Terraform Apply
-      working-directory: ./IaC/Terraform
+      working-directory: ./Terraform
       run: terraform apply -auto-approve tfplan
 
   # Ansible deployment (after Terraform completes)
@@ -244,7 +244,7 @@ jobs:
         chmod 600 ~/.ssh/clo_ec2_001
 
     - name: Run Ansible Playbook
-      working-directory: ./IaC/Ansible
+      working-directory: ./Ansible
       run: |
         ansible-playbook -i inventory/hosts.yml \
           --vault-password-file ../../.vault_pass \
@@ -272,11 +272,11 @@ jobs:
         aws-region: ${{ env.AWS_REGION }}
 
     - name: Terraform Init
-      working-directory: ./IaC/Terraform
+      working-directory: ./Terraform
       run: terraform init
 
     - name: Terraform Destroy
-      working-directory: ./IaC/Terraform
+      working-directory: ./Terraform
       run: terraform destroy -auto-approve
       env:
         TF_VAR_ssh_key_name: ${{ secrets.SSH_KEY_NAME }}

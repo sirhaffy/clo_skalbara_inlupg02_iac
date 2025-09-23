@@ -42,7 +42,6 @@ variable "availability_zones" {
   default     = ["eu-north-1a", "eu-north-1b"]
 }
 
-# SSH Key Configuration
 variable "ssh_key_name" {
   description = "Name of the AWS SSH key pair"
   type        = string
