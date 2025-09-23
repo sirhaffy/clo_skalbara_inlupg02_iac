@@ -227,36 +227,13 @@ jobs:
         echo "=================================================="
         echo ""
 
-        # Get all Terraform outputs
-        VPC_ID=$(terraform output -raw vpc_id)
-        ALB_DNS=$(terraform output -raw alb_dns_name)
-        API_URL=$(terraform output -raw api_gateway_url)
-        LAMBDA_NAME=$(terraform output -raw lambda_function_name)
-        ECR_URL=$(terraform output -raw ecr_repository_url)
-        S3_BUCKET=$(terraform output -raw s3_bucket_name)
-        MANAGER_IPS=$(terraform output -json swarm_manager_ips | jq -r '.[]' | tr '\n' ', ' | sed 's/,$//')
-        WORKER_IPS=$(terraform output -json swarm_worker_ips | jq -r '.[]' | tr '\n' ', ' | sed 's/,$//')
+        # Get essential URLs only
+        ALB_DNS=$(terraform output -raw alb_dns_name 2>/dev/null || echo "Not available")
+        API_URL=$(terraform output -raw api_gateway_url 2>/dev/null || echo "Not available")
 
-        echo "NETWORK INFRASTRUCTURE:"
-        echo "   VPC ID: $VPC_ID"
-        echo "   Application Load Balancer: http://$ALB_DNS"
-        echo "   Frontend URL: http://$ALB_DNS (will show 502 until Ansible completes)"
-        echo ""
-
-        echo "LAMBDA API:"
-        echo "   API Gateway URL: $API_URL"
-        echo "   Lambda Function: $LAMBDA_NAME"
-        echo "   ECR Repository: $ECR_URL"
-        echo ""
-
-        echo "DOCKER SWARM CLUSTER:"
-        echo "   Manager Nodes (Private IPs): $MANAGER_IPS"
-        echo "   Worker Nodes (Private IPs): $WORKER_IPS"
-        echo ""
-
-        echo "STORAGE:"
-        echo "   S3 Bucket: $S3_BUCKET"
-        echo "   DynamoDB Table: clofresva-skalbara-upg02-items"
+        echo "Essential Access URLs:"
+        echo "   Frontend: http://$ALB_DNS"
+        echo "   API:      $API_URL"
         echo ""
 
         echo "NEXT: Ansible will configure Docker Swarm and deploy services..."

@@ -45,7 +45,7 @@ variable "availability_zones" {
 variable "ssh_key_name" {
   description = "Name of the AWS SSH key pair"
   type        = string
-  default     = "clo_ec2_001"
+  default     = "clo_ec2_001" # Already exists in AWS
 }
 
 # IAM Configuration
