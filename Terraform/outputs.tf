@@ -40,13 +40,11 @@ output "github_actions_user" {
   value       = module.lambda.GH_ACTIONS_USER_NAME
 }
 
-# ALB outputs
 output "alb_dns_name" {
   description = "DNS name of the Application Load Balancer"
   value       = module.docker_swarm.alb_dns_name
 }
 
-# Bastion Host outputs
 output "bastion_public_ip" {
   description = "Public IP address of the bastion host"
   value       = module.bastion.bastion_public_ip

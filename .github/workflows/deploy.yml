@@ -283,13 +283,23 @@ jobs:
 
     - name: Generate Ansible inventory
       working-directory: ./Terraform
+      timeout-minutes: 5
       run: |
+        set -e
+        echo "Starting inventory generation..."
+
         # Get EC2 instance IPs from Terraform outputs
+        echo "Getting Terraform outputs..."
         MANAGER_IPS=$(terraform output -json swarm_manager_ips | jq -r '.[]')
         WORKER_IPS=$(terraform output -json swarm_worker_ips | jq -r '.[]')
         BASTION_IP=$(terraform output -raw bastion_public_ip)
 
+        echo "MANAGER_IPS: $MANAGER_IPS"
+        echo "WORKER_IPS: $WORKER_IPS"
+        echo "BASTION_IP: $BASTION_IP"
+
         # Generate simplified inventory
+        echo "Creating inventory file..."
         cat > ../Ansible/inventory/dynamic_hosts.yml << EOF
         ---
         all:
@@ -310,8 +320,10 @@ jobs:
         EOF
 
         # Add managers
+        echo "Adding manager nodes..."
         counter=1
         for ip in $MANAGER_IPS; do
+          echo "Adding manager node $counter: $ip"
           cat >> ../Ansible/inventory/dynamic_hosts.yml << EOF
                 swarm-manager-0$counter:
                   ansible_host: $ip
@@ -320,8 +332,10 @@ jobs:
         EOF
           counter=$((counter + 1))
         done
+        echo "Manager nodes added: $((counter-1))"
 
         # Add workers section
+        echo "Adding workers section..."
         cat >> ../Ansible/inventory/dynamic_hosts.yml << EOF
 
             swarm_workers:
@@ -329,8 +343,10 @@ jobs:
         EOF
 
         # Add workers
+        echo "Adding worker nodes..."
         counter=1
         for ip in $WORKER_IPS; do
+          echo "Adding worker node $counter: $ip"
           cat >> ../Ansible/inventory/dynamic_hosts.yml << EOF
                 swarm-worker-0$counter:
                   ansible_host: $ip
@@ -338,9 +354,11 @@ jobs:
         EOF
           counter=$((counter + 1))
         done
+        echo "Worker nodes added: $((counter-1))"
 
         echo "Generated inventory:"
         cat ../Ansible/inventory/dynamic_hosts.yml
+        echo "Inventory generation completed successfully!"
 
     - name: Test SSH connectivity
       working-directory: ./Ansible
@@ -373,7 +391,7 @@ jobs:
           -m shell -a "docker node ls" \
           --limit "swarm_primary:true"
 
-  # Deployment summary (runs after everything is complete)
+  # Deployment summary (runs after everything is complete).
   deployment-summary:
     runs-on: ubuntu-latest
     if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'deploy')
@@ -396,6 +414,9 @@ jobs:
         echo "   ssh ec2-user@<private-ip-of-swarm-node>"
         echo ""
         echo "=================================================="
+
+
+  #
 
   # Destroy infrastructure (manual trigger only)
   destroy:
