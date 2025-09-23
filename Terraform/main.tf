@@ -5,7 +5,7 @@ module "networking" {
   # Variables that are passed to the module
   project_name         = var.project_name
   environment          = var.environment
-  vpc_cidr            = var.vpc_cidr
+  vpc_cidr             = var.vpc_cidr
 }
 
 # Security Module
@@ -31,8 +31,8 @@ module "storage" {
 module "docker_swarm" {
   source = "./docker_swarm"
 
-  project_name      = var.project_name
-  environment       = var.environment
+  project_name     = var.project_name
+  environment      = var.environment
   vpc_id           = module.networking.vpc_id
   public_subnets   = module.networking.public_subnet_ids
   private_subnets  = module.networking.private_subnet_ids
@@ -46,8 +46,8 @@ module "lambda" {
   source = "./lambda"
 
   project_name              = var.project_name
-  environment              = var.environment
-  GH_ACTIONS_USER_NAME = var.GH_ACTIONS_USER_NAME
+  environment               = var.environment
+  GH_ACTIONS_USER_NAME      = var.GH_ACTIONS_USER_NAME
 }
 
 # Bastion Host Module (for SSH access and troubleshooting)

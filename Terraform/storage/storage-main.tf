@@ -1,6 +1,4 @@
-# S3 bucket for application storage (if needed)
-# Note: Terraform state bucket is created manually via CLI commands
-
+# S3 bucket for tferraform state
 resource "aws_s3_bucket" "app_bucket" {
   count = var.environment == "prod" ? 1 : 0
 

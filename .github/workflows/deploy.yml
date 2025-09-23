@@ -304,6 +304,8 @@ jobs:
               bastion_role: primary
 
         docker_swarm:
+          vars:
+            ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o ProxyJump=ec2-user@$BASTION_IP'
           children:
             swarm_managers:
               hosts:
