@@ -47,5 +47,5 @@ module "lambda" {
 
   project_name              = var.project_name
   environment              = var.environment
-  github_actions_user_name = var.github_actions_user_name
+  GH_ACTIONS_USER_NAME = var.GH_ACTIONS_USER_NAME
 }

@@ -18,7 +18,7 @@ output "ecr_repository_url" {
   value       = aws_ecr_repository.api_lambda.repository_url
 }
 
-output "github_actions_user_name" {
+output "GH_ACTIONS_USER_NAME" {
   description = "GitHub Actions IAM user name (existing)"
   value       = data.aws_iam_user.github_actions.user_name
 }

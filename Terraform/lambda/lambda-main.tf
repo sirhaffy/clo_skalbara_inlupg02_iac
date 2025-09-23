@@ -240,7 +240,7 @@ resource "aws_lambda_permission" "api_gw" {
 
 # Use existing GitHub Actions IAM user
 data "aws_iam_user" "github_actions" {
-  user_name = var.github_actions_user_name
+  user_name = var.GH_ACTIONS_USER_NAME
 }
 
 # IAM Policy for your existing GitHub Actions user

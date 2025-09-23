@@ -8,7 +8,7 @@ variable "environment" {
   type        = string
 }
 
-variable "github_actions_user_name" {
+variable "GH_ACTIONS_USER_NAME" {
   description = "Name of your existing GitHub Actions IAM user"
   type        = string
   default     = "github-actions-user"  # Matchar din befintliga användare

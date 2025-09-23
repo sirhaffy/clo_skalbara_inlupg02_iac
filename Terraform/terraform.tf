@@ -2,6 +2,7 @@ terraform {
   required_version = ">= 1.0"
 
   backend "s3" {
+    description    = "S3 bucket for Terraform state file and DynamoDB for state locking"
     bucket         = "clofresva-skalbara-upg02-terraform-state"
     key            = "terraform/state/terraform.tfstate"
     region         = "eu-north-1"

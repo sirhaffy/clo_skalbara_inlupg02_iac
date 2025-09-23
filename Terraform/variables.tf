@@ -49,7 +49,7 @@ variable "ssh_key_name" {
 }
 
 # IAM Configuration
-variable "github_actions_user_name" {
+variable "GH_ACTIONS_USER_NAME" {
   description = "Name of your existing GitHub Actions IAM user"
   type        = string
   default     = "github-actions-user"
