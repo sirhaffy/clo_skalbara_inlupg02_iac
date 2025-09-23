@@ -74,9 +74,9 @@ jobs:
       run: |
         echo "Checking if S3 bucket exists: $STATE_BUCKET_NAME"
         if aws s3api head-bucket --bucket "$STATE_BUCKET_NAME" 2>/dev/null; then
-          echo "✅ S3 bucket already exists: $STATE_BUCKET_NAME"
+          echo "S3 bucket already exists: $STATE_BUCKET_NAME"
         else
-          echo "🔄 Creating S3 bucket: $STATE_BUCKET_NAME"
+          echo "Creating S3 bucket: $STATE_BUCKET_NAME"
           aws s3 mb "s3://$STATE_BUCKET_NAME" --region "$AWS_REGION"
 
           # Enable versioning
@@ -101,16 +101,16 @@ jobs:
             --public-access-block-configuration \
             BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
 
-          echo "✅ S3 bucket created and configured: $STATE_BUCKET_NAME"
+          echo "S3 bucket created and configured: $STATE_BUCKET_NAME"
         fi
 
     - name: Check if DynamoDB table exists and create if needed
       run: |
         echo "Checking if DynamoDB table exists: $LOCK_TABLE_NAME"
         if aws dynamodb describe-table --table-name "$LOCK_TABLE_NAME" --region "$AWS_REGION" 2>/dev/null; then
-          echo "✅ DynamoDB table already exists: $LOCK_TABLE_NAME"
+          echo "DynamoDB table already exists: $LOCK_TABLE_NAME"
         else
-          echo "🔄 Creating DynamoDB table: $LOCK_TABLE_NAME"
+          echo "Creating DynamoDB table: $LOCK_TABLE_NAME"
           aws dynamodb create-table \
             --table-name "$LOCK_TABLE_NAME" \
             --attribute-definitions AttributeName=LockID,AttributeType=S \
@@ -118,9 +118,9 @@ jobs:
             --provisioned-throughput ReadCapacityUnits=1,WriteCapacityUnits=1 \
             --region "$AWS_REGION"
 
-          echo "⏳ Waiting for table to be created..."
+          echo "Waiting for table to be created..."
           aws dynamodb wait table-exists --table-name "$LOCK_TABLE_NAME" --region "$AWS_REGION"
-          echo "✅ DynamoDB table created: $LOCK_TABLE_NAME"
+          echo "DynamoDB table created: $LOCK_TABLE_NAME"
         fi
 
   # Terraform validation (on PRs)
@@ -219,6 +219,49 @@ jobs:
       working-directory: ./Terraform
       run: terraform apply -auto-approve tfplan
 
+    - name: Infrastructure Deployment Summary (Terraform)
+      working-directory: ./Terraform
+      run: |
+        echo "=================================================="
+        echo "      TERRAFORM DEPLOYMENT COMPLETED"
+        echo "=================================================="
+        echo ""
+
+        # Get all Terraform outputs
+        VPC_ID=$(terraform output -raw vpc_id)
+        ALB_DNS=$(terraform output -raw alb_dns_name)
+        API_URL=$(terraform output -raw api_gateway_url)
+        LAMBDA_NAME=$(terraform output -raw lambda_function_name)
+        ECR_URL=$(terraform output -raw ecr_repository_url)
+        S3_BUCKET=$(terraform output -raw s3_bucket_name)
+        MANAGER_IPS=$(terraform output -json swarm_manager_ips | jq -r '.[]' | tr '\n' ', ' | sed 's/,$//')
+        WORKER_IPS=$(terraform output -json swarm_worker_ips | jq -r '.[]' | tr '\n' ', ' | sed 's/,$//')
+
+        echo "NETWORK INFRASTRUCTURE:"
+        echo "   VPC ID: $VPC_ID"
+        echo "   Application Load Balancer: http://$ALB_DNS"
+        echo "   Frontend URL: http://$ALB_DNS (will show 502 until Ansible completes)"
+        echo ""
+
+        echo "LAMBDA API:"
+        echo "   API Gateway URL: $API_URL"
+        echo "   Lambda Function: $LAMBDA_NAME"
+        echo "   ECR Repository: $ECR_URL"
+        echo ""
+
+        echo "DOCKER SWARM CLUSTER:"
+        echo "   Manager Nodes (Private IPs): $MANAGER_IPS"
+        echo "   Worker Nodes (Private IPs): $WORKER_IPS"
+        echo ""
+
+        echo "STORAGE:"
+        echo "   S3 Bucket: $S3_BUCKET"
+        echo "   DynamoDB Table: clofresva-skalbara-upg02-items"
+        echo ""
+
+        echo "NEXT: Ansible will configure Docker Swarm and deploy services..."
+        echo "=================================================="
+
   # Ansible deployment (after Terraform completes)
   ansible-deploy:
     runs-on: ubuntu-latest
@@ -302,69 +345,26 @@ jobs:
           playbooks/docker-swarm.yml
 
     - name: Infrastructure Deployment Summary
-      working-directory: ./Terraform
       run: |
-        echo "🚀 =================================================="
-        echo "🚀     INFRASTRUCTURE DEPLOYMENT COMPLETED"
-        echo "🚀 =================================================="
+        echo "=================================================="
+        echo "     INFRASTRUCTURE DEPLOYMENT COMPLETED          "
+        echo "=================================================="
         echo ""
-
-        # Get all Terraform outputs
-        VPC_ID=$(terraform output -raw vpc_id)
-        ALB_DNS=$(terraform output -raw alb_dns_name)
-        API_URL=$(terraform output -raw api_gateway_url)
-        LAMBDA_NAME=$(terraform output -raw lambda_function_name)
-        ECR_URL=$(terraform output -raw ecr_repository_url)
-        S3_BUCKET=$(terraform output -raw s3_bucket_name)
-        MANAGER_IPS=$(terraform output -json swarm_manager_ips | jq -r '.[]' | tr '\n' ', ' | sed 's/,$//')
-        WORKER_IPS=$(terraform output -json swarm_worker_ips | jq -r '.[]' | tr '\n' ', ' | sed 's/,$//')
-
-        echo "🌐 NETWORK INFRASTRUCTURE:"
-        echo "   📋 VPC ID: $VPC_ID"
-        echo "   🔗 Application Load Balancer: http://$ALB_DNS"
-        echo "   🌍 Frontend URL: http://$ALB_DNS"
+        echo "Infrastructure (Terraform): DONE"
+        echo "Configuration (Ansible): DONE"
+        echo "Docker Swarm: READY"
+        echo "Services: DEPLOYED"
         echo ""
-
-        echo "⚡ LAMBDA API:"
-        echo "   🔗 API Gateway URL: $API_URL"
-        echo "   📦 Lambda Function: $LAMBDA_NAME"
-        echo "   🐳 ECR Repository: $ECR_URL"
+        echo "Check the Terraform job output for detailed info including:"
+        echo "   - VPC and network details"
+        echo "   - ALB URL for frontend access"
+        echo "   - API Gateway URL for API access"
+        echo "   - Lambda function details"
+        echo "   - ECR repository URL"
+        echo "   - EC2 instance IPs"
         echo ""
-
-        echo "🐳 DOCKER SWARM CLUSTER:"
-        echo "   🎛️  Manager Nodes (Private IPs): $MANAGER_IPS"
-        echo "   ⚙️  Worker Nodes (Private IPs): $WORKER_IPS"
-        echo "   📝 Note: Access via bastion host or ALB for web traffic"
-        echo ""
-
-        echo "💾 STORAGE:"
-        echo "   📦 S3 Bucket: $S3_BUCKET"
-        echo "   🗄️  DynamoDB Table: clofresva-skalbara-upg02-items"
-        echo ""
-
-        echo "🔐 SECURITY:"
-        echo "   🔑 SSH Key: clo_ec2_001"
-        echo "   👤 GitHub Actions User: github-actions-user"
-        echo ""
-
-        echo "🔍 QUICK ACCESS:"
-        echo "   🌐 Visit your app: http://$ALB_DNS"
-        echo "   ⚡ Test your API: $API_URL"
-        echo "   📊 Monitor Lambda: https://console.aws.amazon.com/lambda/home?region=eu-north-1#/functions/$LAMBDA_NAME"
-        echo "   🐳 ECR Images: https://console.aws.amazon.com/ecr/repositories?region=eu-north-1"
-        echo ""
-
-        echo "📝 NEXT STEPS:"
-        echo "   1. Deploy your frontend app to update Docker Swarm services"
-        echo "   2. Deploy your API to push new Lambda code"
-        echo "   3. Monitor logs and metrics in AWS Console"
-        echo ""
-
-        echo "🚀 =================================================="
-        echo "🎉 Ready to serve traffic!"
-        echo "🚀 =================================================="
-
-  # Destroy infrastructure (manual trigger only)
+        echo "Your application is now live!"
+        echo "=================================================="  # Destroy infrastructure (manual trigger only)
   destroy:
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'

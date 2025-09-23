@@ -238,7 +238,7 @@ resource "aws_lambda_permission" "api_gw" {
   source_arn = "${aws_api_gateway_rest_api.api.execution_arn}/*/*"
 }
 
-# Use existing GitHub Actions IAM user
+# Using existing GitHub Actions IAM user
 data "aws_iam_user" "github_actions" {
   user_name = var.GH_ACTIONS_USER_NAME
 }
