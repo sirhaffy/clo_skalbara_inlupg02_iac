@@ -1,5 +1,5 @@
 ---
-# Docker Swarm setup using CLI commands only (no Python SDK)
+# Docker Swarm setup using CLI
 
 - name: Check if Swarm is already initialized
   shell: docker info --format '{{.Swarm.LocalNodeState}}'
@@ -76,7 +76,7 @@
 - name: Show swarm node information
   debug:
     msg: "{{ node_status.stdout_lines }}"
-  when: 
+  when:
     - swarm_primary is defined and swarm_primary
     - node_status.stdout_lines is defined
 

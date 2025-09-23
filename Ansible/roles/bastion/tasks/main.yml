@@ -99,8 +99,6 @@
       - "Root login disabled"
       - "Password auth disabled"
       - "Only key-based auth"
-      - "NO Python installed"
-      - "NO extra tools installed"
       - ""
       - "Purpose: SSH jump server ONLY"
       - "From here, SSH to Docker Swarm nodes"
