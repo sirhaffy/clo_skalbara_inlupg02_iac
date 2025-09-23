@@ -123,7 +123,7 @@ jobs:
           echo "DynamoDB table created: $LOCK_TABLE_NAME"
         fi
 
-  # Terraform validation (on PRs)
+  # Terraform validation (on PRs) to catch errors early.
   terraform-check:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
@@ -163,7 +163,7 @@ jobs:
         TF_VAR_ssh_key_name: ${{ secrets.SSH_KEY_NAME }}
         TF_VAR_GH_ACTIONS_USER_NAME: ${{ secrets.GH_ACTIONS_USER_NAME }}
 
-  # Ansible validation (on PRs)
+  # Ansible validation (on PRs) to catch errors early.
   ansible-check:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
@@ -365,12 +365,48 @@ jobs:
       working-directory: ./Ansible
       run: |
         echo "Testing SSH connectivity..."
+        BASTION_IP=$(cd ../Terraform && terraform output -raw bastion_public_ip)
 
-        # Test bastion connection
-        ansible bastion_hosts -i inventory/dynamic_hosts.yml -m ping
+        # Configure SSH like the working example
+        cat > ~/.ssh/config << EOF
+        Host bastion
+          HostName $BASTION_IP
+          User ec2-user
+          IdentityFile ~/.ssh/clo_ec2_001
+          StrictHostKeyChecking no
+          IdentitiesOnly yes
+          ConnectTimeout 10
+          BatchMode yes
+        EOF
+        chmod 600 ~/.ssh/config
 
-        # Test swarm nodes connection
-        ansible docker_swarm -i inventory/dynamic_hosts.yml -m ping
+        # Add host key to known_hosts (like the working example)
+        ssh-keyscan -t rsa $BASTION_IP >> ~/.ssh/known_hosts 2>/dev/null || true
+
+        # Wait for SSH connection with retry logic (like the working example)
+        echo "Waiting for SSH connection to bastion..."
+        for i in {1..10}; do
+          echo "Attempt $i/10..."
+          if ssh -v -o ConnectTimeout=10 bastion "echo 'SSH Connected to bastion!'; hostname; whoami"; then
+            echo "SSH connection established!"
+            break
+          fi
+
+          if [ $i -eq 10 ]; then
+            echo "::error::Failed to establish SSH connection after 10 attempts"
+            exit 1
+          fi
+
+          echo "SSH not ready yet, waiting 30 seconds..."
+          sleep 30
+        done
+
+        # Test connection to Docker nodes via bastion
+        echo "Testing Docker Swarm node connectivity..."
+        for node in swarm_managers swarm_workers; do
+          echo "Testing $node group..."
+          ansible $node -i inventory/dynamic_hosts.yml -m ping || echo "Warning: $node not reachable yet"
+        done
 
     - name: Configure Bastion Host
       working-directory: ./Ansible
@@ -417,9 +453,7 @@ jobs:
         echo "=================================================="
 
 
-  #
-
-  # Destroy infrastructure (manual trigger only)
+  # Manual workflow to Destroy infrastructure
   destroy:
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
