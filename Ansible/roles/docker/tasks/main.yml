@@ -57,3 +57,54 @@
     name: docker
     state: started
   become: true
+
+# SSH Security Hardening for Docker nodes
+- name: Configure SSH security settings
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: present
+    backup: true
+  become: true
+  loop:
+    - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin no' }
+    - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication no' }
+    - { regexp: '^#?PubkeyAuthentication', line: 'PubkeyAuthentication yes' }
+    - { regexp: '^#?AuthorizedKeysFile', line: 'AuthorizedKeysFile .ssh/authorized_keys' }
+    - { regexp: '^#?PermitEmptyPasswords', line: 'PermitEmptyPasswords no' }
+    - { regexp: '^#?ChallengeResponseAuthentication', line: 'ChallengeResponseAuthentication no' }
+    - { regexp: '^#?X11Forwarding', line: 'X11Forwarding no' }
+    - { regexp: '^#?AllowUsers', line: 'AllowUsers ec2-user' }
+    - { regexp: '^#?ClientAliveInterval', line: 'ClientAliveInterval 300' }
+    - { regexp: '^#?ClientAliveCountMax', line: 'ClientAliveCountMax 2' }
+  notify: restart sshd
+
+- name: Set SSH banner for Docker nodes
+  copy:
+    content: |
+      ================================================================================
+                              DOCKER SWARM NODE - AUTHORIZED ACCESS ONLY
+      ================================================================================
+
+      This system is for authorized users only. All activities are monitored
+      and logged. Unauthorized access is strictly prohibited.
+
+      Docker Swarm Node - {{ inventory_hostname }}
+      Access only through bastion host
+      Managed by Ansible
+      ================================================================================
+    dest: /etc/ssh/ssh_banner
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+
+- name: Configure SSH banner
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?Banner'
+    line: 'Banner /etc/ssh/ssh_banner'
+    state: present
+  become: true
+  notify: restart sshd

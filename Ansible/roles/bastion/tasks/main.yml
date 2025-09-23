@@ -66,3 +66,77 @@
       - "Public IP: {{ ansible_default_ipv4.address }}"
       - "Hostname: {{ ansible_hostname }}"
       - "Available tools: htop, tree, wget, curl, telnet, nc, nmap, git, vim, tmux, docker"
+
+# SSH Security Hardening
+- name: Configure SSH security settings
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: present
+    backup: true
+  become: true
+  loop:
+    - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin no' }
+    - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication no' }
+    - { regexp: '^#?PubkeyAuthentication', line: 'PubkeyAuthentication yes' }
+    - { regexp: '^#?AuthorizedKeysFile', line: 'AuthorizedKeysFile .ssh/authorized_keys' }
+    - { regexp: '^#?PermitEmptyPasswords', line: 'PermitEmptyPasswords no' }
+    - { regexp: '^#?ChallengeResponseAuthentication', line: 'ChallengeResponseAuthentication no' }
+    - { regexp: '^#?UsePAM', line: 'UsePAM yes' }
+    - { regexp: '^#?X11Forwarding', line: 'X11Forwarding no' }
+    - { regexp: '^#?PrintMotd', line: 'PrintMotd no' }
+    - { regexp: '^#?ClientAliveInterval', line: 'ClientAliveInterval 300' }
+    - { regexp: '^#?ClientAliveCountMax', line: 'ClientAliveCountMax 2' }
+    - { regexp: '^#?AllowUsers', line: 'AllowUsers ec2-user' }
+    - { regexp: '^#?Protocol', line: 'Protocol 2' }
+  notify: restart sshd
+
+- name: Set SSH banner
+  copy:
+    content: |
+      ================================================================================
+                              AUTHORIZED ACCESS ONLY
+      ================================================================================
+
+      This system is for authorized users only. All activities are monitored
+      and logged. Unauthorized access is strictly prohibited.
+
+      Bastion Host - {{ inventory_hostname }}
+      Managed by Ansible
+      ================================================================================
+    dest: /etc/ssh/ssh_banner
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+
+- name: Configure SSH banner
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?Banner'
+    line: 'Banner /etc/ssh/ssh_banner'
+    state: present
+  become: true
+  notify: restart sshd
+
+- name: Ensure SSH service is enabled and started
+  systemd:
+    name: sshd
+    state: started
+    enabled: true
+  become: true
+
+- name: Display SSH security summary
+  debug:
+    msg:
+      - "==============================================="
+      - "         SSH SECURITY CONFIGURED"
+      - "==============================================="
+      - "✅ Root login: DISABLED"
+      - "✅ Password authentication: DISABLED"
+      - "✅ Public key authentication: ENABLED"
+      - "✅ Only ec2-user allowed"
+      - "✅ SSH banner configured"
+      - "✅ Connection timeouts configured"
+      - "==============================================="

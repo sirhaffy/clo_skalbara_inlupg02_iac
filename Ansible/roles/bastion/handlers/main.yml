@@ -1,0 +1,9 @@
+---
+# handlers file for bastion role
+
+- name: restart sshd
+  systemd:
+    name: sshd
+    state: restarted
+  become: true
+  listen: "restart sshd"

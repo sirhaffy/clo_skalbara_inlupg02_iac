@@ -10,8 +10,6 @@ resource "aws_instance" "swarm_manager" {
   subnet_id             = var.private_subnets[0]
   vpc_security_group_ids = [var.web_sg_id]
 
-  # No user_data - Docker installation and swarm setup handled by Ansible
-
   tags = {
     Name        = "${var.project_name}-swarm-manager-${count.index + 1}"
     Environment = var.environment
@@ -22,15 +20,13 @@ resource "aws_instance" "swarm_manager" {
 
 # Docker Swarm Workers (in private subnet)
 resource "aws_instance" "swarm_worker" {
-  count = 2  # Two workers for load distribution
+  count = 2  # TODO: Dynamical scling via ASG.
 
   ami                    = data.aws_ami.amazon_linux.id
   instance_type          = "t3.small"
   key_name              = var.ssh_key_name
   subnet_id             = var.private_subnets[count.index % length(var.private_subnets)]
   vpc_security_group_ids = [var.web_sg_id]
-
-  # No user_data - Docker installation and swarm setup handled by Ansible
 
   tags = {
     Name        = "${var.project_name}-swarm-worker-${count.index + 1}"
