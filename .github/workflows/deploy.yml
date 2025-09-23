@@ -12,19 +12,26 @@ on:
       - 'IaC/Terraform/**'
       - 'IaC/Ansible/**'
   workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'deploy'
+        type: choice
+        options:
+        - deploy
+        - destroy
 
 env:
   TF_VERSION: 1.5.0
   AWS_REGION: eu-north-1
-  STATE_BUCKET_NAME: clofresva-skalbara-upg02-terraform-state
-  LOCK_TABLE_NAME: terraform-state-lock
 
 jobs:
   # Setup S3 and DynamoDB for Terraform backend
   setup-backend:
     name: 'Setup Terraform Backend (S3 + DynamoDB)'
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'deploy')
 
     steps:
     - name: Checkout
@@ -36,6 +43,31 @@ jobs:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
+
+    - name: Get configuration from Parameter Store
+      run: |
+        # Try to get parameters, create with defaults if they don't exist
+        STATE_BUCKET_NAME=$(aws ssm get-parameter --name "/terraform/state-bucket-name" --query "Parameter.Value" --output text 2>/dev/null || echo "")
+        LOCK_TABLE_NAME=$(aws ssm get-parameter --name "/terraform/lock-table-name" --query "Parameter.Value" --output text 2>/dev/null || echo "")
+
+        # If parameters don't exist, create them with default values
+        if [ -z "$STATE_BUCKET_NAME" ]; then
+          STATE_BUCKET_NAME="clofresva-skalbara-upg02-terraform-state"
+          aws ssm put-parameter --name "/terraform/state-bucket-name" --value "$STATE_BUCKET_NAME" --type "String" --description "Terraform state S3 bucket name"
+          echo "Created parameter /terraform/state-bucket-name with value: $STATE_BUCKET_NAME"
+        fi
+
+        if [ -z "$LOCK_TABLE_NAME" ]; then
+          LOCK_TABLE_NAME="terraform-state-lock"
+          aws ssm put-parameter --name "/terraform/lock-table-name" --value "$LOCK_TABLE_NAME" --type "String" --description "Terraform state lock DynamoDB table name"
+          echo "Created parameter /terraform/lock-table-name with value: $LOCK_TABLE_NAME"
+        fi
+
+        # Export to environment for subsequent steps
+        echo "STATE_BUCKET_NAME=$STATE_BUCKET_NAME" >> $GITHUB_ENV
+        echo "LOCK_TABLE_NAME=$LOCK_TABLE_NAME" >> $GITHUB_ENV
+        echo "Using STATE_BUCKET_NAME: $STATE_BUCKET_NAME"
+        echo "Using LOCK_TABLE_NAME: $LOCK_TABLE_NAME"
 
     - name: Check if S3 bucket exists and create if needed
       run: |
@@ -152,7 +184,7 @@ jobs:
   # Terraform deployment (main branch only)
   terraform-apply:
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'deploy')
     needs: setup-backend
 
     steps:
@@ -189,7 +221,7 @@ jobs:
   # Ansible deployment (after Terraform completes)
   ansible-deploy:
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'deploy')
     needs: terraform-apply  # WAIT for Terraform to finish first
 
     steps:
@@ -216,3 +248,43 @@ jobs:
         ansible-playbook -i inventory/hosts.yml \
           --vault-password-file ../../.vault_pass \
           playbooks/docker-swarm.yml
+
+  # Destroy infrastructure (manual trigger only)
+  destroy:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Terraform Init
+      working-directory: ./IaC/Terraform
+      run: terraform init
+
+    - name: Terraform Destroy
+      working-directory: ./IaC/Terraform
+      run: terraform destroy -auto-approve
+      env:
+        TF_VAR_ssh_key_name: ${{ secrets.SSH_KEY_NAME }}
+        TF_VAR_github_actions_user_name: ${{ secrets.GITHUB_ACTIONS_USER_NAME }}
+
+    - name: Cleanup S3 bucket and DynamoDB (optional)
+      run: |
+        echo "Removing Terraform state resources..."
+        aws s3 rm "s3://$STATE_BUCKET_NAME" --recursive || true
+        aws s3 rb "s3://$STATE_BUCKET_NAME" || true
+        aws dynamodb delete-table --table-name "$LOCK_TABLE_NAME" --region "$AWS_REGION" || true
+        echo "Cleanup completed"
