@@ -292,195 +292,92 @@ jobs:
         echo "Getting Terraform outputs..."
         MANAGER_IPS=$(terraform output -json swarm_manager_ips | jq -r '.[]')
         WORKER_IPS=$(terraform output -json swarm_worker_ips | jq -r '.[]')
-
         BASTION_PUBL_IP=$(terraform output -raw bastion_public_ip)
 
         echo "MANAGER_IPS: $MANAGER_IPS"
         echo "WORKER_IPS: $WORKER_IPS"
         echo "BASTION_PUBL_IP: $BASTION_PUBL_IP"
 
-        # Generate simplified inventory
-        echo "Creating inventory file..."
-        cat > ../Ansible/inventory/dynamic_hosts.yml << EOF
-        ---
-        all:
-          vars:
-            ansible_user: ec2-user
-            ansible_ssh_private_key_file: ~/.ssh/clo_ec2_001
+        # Copy template and replace bastion IP
+        echo "Updating inventory template with bastion IP..."
+        cp ../Ansible/inventory/dynamic_hosts.yml ../Ansible/inventory/hosts_working.yml
+        sed -i "s/BASTION_IP_PLACEHOLDER/$BASTION_PUBL_IP/g" ../Ansible/inventory/hosts_working.yml
 
-        bastion_hosts:
-          hosts:
-            bastion-01:
-              ansible_host: $BASTION_PUBL_IP
-
-        docker_swarm:
-          vars:
-            ansible_ssh_common_args: '-o ProxyJump=ec2-user@$BASTION_PUBL_IP -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
-          children:
-            swarm_managers:
-              hosts:
-        EOF
-
-        # Add managers
+        # Add manager nodes
         echo "Adding manager nodes..."
         counter=1
         for ip in $MANAGER_IPS; do
           echo "Adding manager node $counter: $ip"
-          cat >> ../Ansible/inventory/dynamic_hosts.yml << EOF
-                swarm-manager-0$counter:
-                  ansible_host: $ip
-                  swarm_role: manager
-                  swarm_primary: $([ $counter -eq 1 ] && echo "true" || echo "false")
-        EOF
+          sed -i "/# Manager nodes will be added here dynamically/a\\        swarm-manager-0$counter:\\n          ansible_host: $ip\\n          swarm_role: manager\\n          swarm_primary: $([ $counter -eq 1 ] && echo "true" || echo "false")" ../Ansible/inventory/hosts_working.yml
           counter=$((counter + 1))
         done
         echo "Manager nodes added: $((counter-1))"
 
-        # Add workers section
-        echo "Adding workers section..."
-        cat >> ../Ansible/inventory/dynamic_hosts.yml << EOF
-
-            swarm_workers:
-              hosts:
-        EOF
-
-        # Add workers
+        # Add worker nodes
         echo "Adding worker nodes..."
         counter=1
         for ip in $WORKER_IPS; do
           echo "Adding worker node $counter: $ip"
-          cat >> ../Ansible/inventory/dynamic_hosts.yml << EOF
-                swarm-worker-0$counter:
-                  ansible_host: $ip
-                  swarm_role: worker
-        EOF
+          sed -i "/# Worker nodes will be added here dynamically/a\\        swarm-worker-0$counter:\\n          ansible_host: $ip\\n          swarm_role: worker" ../Ansible/inventory/hosts_working.yml
           counter=$((counter + 1))
         done
         echo "Worker nodes added: $((counter-1))"
 
+        # Replace the original with working copy
+        mv ../Ansible/inventory/hosts_working.yml ../Ansible/inventory/dynamic_hosts.yml
+
         echo "Generated inventory:"
-        cat ../Ansible/inventory/dynamic_hosts.yml
+        if [ -f ../Ansible/inventory/dynamic_hosts.yml ]; then
+            echo "✓ Inventory file exists"
+            echo "File size: $(wc -l < ../Ansible/inventory/dynamic_hosts.yml) lines"
+            echo "--- Inventory content start ---"
+            cat ../Ansible/inventory/dynamic_hosts.yml
+            echo "--- Inventory content end ---"
+        else
+            echo "✗ ERROR: Inventory file was not created!"
+            echo "Current directory: $(pwd)"
+            echo "Files in ../Ansible/inventory/:"
+            ls -la ../Ansible/inventory/ || echo "Directory does not exist"
+            exit 1
+        fi
+
         echo "Inventory generation completed successfully!"
 
     - name: Test SSH connectivity
       working-directory: ./Ansible
       run: |
-        echo "=== Enhanced SSH connectivity test ==="
-
         # Get bastion IP from Terraform
         BASTION_IP=$(cd ../Terraform && terraform output -raw bastion_public_ip)
-        echo "Bastion IP: $BASTION_IP"
+        echo "Testing SSH to bastion: $BASTION_IP"
 
-        # Verify SSH key exists
-        if [ ! -f ~/.ssh/clo_ec2_001 ]; then
-            echo "::error::SSH private key not found at ~/.ssh/clo_ec2_001"
-            exit 1
-        fi
-
-        # Set proper permissions on SSH key
-        chmod 600 ~/.ssh/clo_ec2_001
-        echo "SSH key permissions set to 600"
-
-        # Create SSH config
-        cat > ~/.ssh/config << EOF
-        Host bastion
-          HostName $BASTION_IP
-          User ec2-user
-          IdentityFile ~/.ssh/clo_ec2_001
-          StrictHostKeyChecking no
-          UserKnownHostsFile /dev/null
-          IdentitiesOnly yes
-          ConnectTimeout 10
-          ServerAliveInterval 30
-          ServerAliveCountMax 3
-          LogLevel VERBOSE
-        EOF
-        chmod 600 ~/.ssh/config
-        echo "SSH config created"
-
-        # Test basic network connectivity first
-        echo "=== Testing network connectivity ==="
-        if ping -c 3 -W 5 $BASTION_IP; then
-            echo "✓ Ping to bastion successful"
-        else
-            echo "✗ Ping to bastion failed"
-        fi
-
-        # Test if port 22 is open
-        echo "=== Testing port 22 connectivity ==="
-        if timeout 10 nc -zv $BASTION_IP 22 2>&1; then
-            echo "✓ Port 22 is reachable"
-        else
-            echo "✗ Port 22 is not reachable or filtered"
-        fi
-
-        # Check if instance is running (requires AWS CLI)
-        echo "=== Checking EC2 instance status ==="
-        if command -v aws >/dev/null 2>&1; then
-            # Try to get instance information
-            INSTANCE_INFO=$(aws ec2 describe-instances --filters "Name=ip-address,Values=$BASTION_IP" --query 'Reservations[*].Instances[*].[InstanceId,State.Name,PublicIpAddress]' --output text 2>/dev/null)
-            if [ -n "$INSTANCE_INFO" ]; then
-                echo "Instance info: $INSTANCE_INFO"
-            else
-                echo "Could not retrieve instance information"
-            fi
-        else
-            echo "AWS CLI not available for instance status check"
-        fi
-
-        # Wait for SSH with enhanced retry logic
-        echo "=== Waiting for SSH service ==="
-        MAX_ATTEMPTS=15
+        # Simple SSH test with retry
+        MAX_ATTEMPTS=10
         WAIT_TIME=30
 
         for attempt in $(seq 1 $MAX_ATTEMPTS); do
             echo "SSH attempt $attempt/$MAX_ATTEMPTS..."
 
-            # First check if port is open before trying SSH
-            if timeout 5 nc -z $BASTION_IP 22 2>/dev/null; then
-                echo "Port 22 is open, attempting SSH connection..."
-
-                # Try SSH connection with detailed output
-                if timeout 15 ssh -v -o ConnectTimeout=10 -o BatchMode=yes bastion "echo 'SSH Connected to bastion!'; hostname; whoami" 2>&1; then
-                    echo "✓ SSH connection established successfully!"
-
-                    # Test Ansible connectivity
-                    echo "=== Testing Ansible connectivity ==="
-                    cd ../Ansible || exit 1
-
-                    echo "Testing Docker Swarm node connectivity..."
-                    for node_group in swarm_managers swarm_workers; do
-                        echo "Testing $node_group group..."
-                        if ansible $node_group -i inventory/dynamic_hosts.yml -m ping -v; then
-                            echo "✓ $node_group reachable"
-                        else
-                            echo "✗ $node_group not reachable"
-                        fi
-                    done
-
-                    exit 0
-                else
-                    echo "SSH connection failed with exit code $?"
-                fi
+            if ssh -i ~/.ssh/clo_ec2_001 -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 ec2-user@$BASTION_IP "echo 'SSH OK'; hostname" 2>/dev/null; then
+                echo "✓ SSH connection to bastion successful!"
+                break
             else
-                echo "Port 22 is not yet open"
+                echo "SSH failed, attempt $attempt/$MAX_ATTEMPTS"
+                if [ $attempt -eq $MAX_ATTEMPTS ]; then
+                    echo "::error::Failed to connect to bastion after $MAX_ATTEMPTS attempts"
+                    exit 1
+                fi
+                sleep $WAIT_TIME
             fi
+        done
 
-            if [ $attempt -eq $MAX_ATTEMPTS ]; then
-                echo "::error::Failed to establish SSH connection after $MAX_ATTEMPTS attempts"
-
-                # Final diagnostics
-                echo "=== Final diagnostic information ==="
-                echo "Bastion IP: $BASTION_IP"
-                echo "Current time: $(date)"
-                echo "Network route to bastion:"
-                traceroute -m 10 $BASTION_IP 2>/dev/null || echo "Traceroute not available"
-
-                exit 1
+        echo "Testing Ansible connectivity to Docker Swarm nodes..."
+        for node_group in swarm_managers swarm_workers; do
+            echo "Testing $node_group..."
+            if ansible $node_group -i inventory/dynamic_hosts.yml -m ping --timeout=30 -v; then
+                echo "✓ $node_group reachable"
+            else
+                echo "✗ $node_group not reachable"
             fi
-
-            echo "Waiting ${WAIT_TIME} seconds before next attempt..."
-            sleep $WAIT_TIME
         done
 
     - name: Configure Bastion Host
