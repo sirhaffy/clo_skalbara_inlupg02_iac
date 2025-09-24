@@ -228,141 +228,101 @@ jobs:
       working-directory: ./Terraform
       run: terraform init
 
-    - name: Setup SSH key from Parameter Store
+    - name: Setup SSH key
       run: |
         mkdir -p ~/.ssh
-
-        # Upload SSH key to Parameter Store first (if not exists)
-        echo "Updating SSH key in Parameter Store..."
-        aws ssm put-parameter \
-          --name "/ssh/clo_ec2_001" \
-          --value "${{ secrets.SSH_PRIVATE_KEY }}" \
-          --type "SecureString" \
-          --description "SSH private key for EC2 instances" \
-          --overwrite || echo "Parameter already exists"
-
-        # Retrieve SSH key from Parameter Store
-        echo "Retrieving SSH key from Parameter Store..."
-        aws ssm get-parameter \
-          --name "/ssh/clo_ec2_001" \
-          --with-decryption \
-          --query "Parameter.Value" \
-          --output text > ~/.ssh/clo_ec2_001
-
+        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/clo_ec2_001
         chmod 600 ~/.ssh/clo_ec2_001
 
-        # Verify key was retrieved successfully
-        if ssh-keygen -l -f ~/.ssh/clo_ec2_001 > /dev/null 2>&1; then
-          echo "✅ SSH key successfully retrieved from Parameter Store"
-        else
-          echo "❌ SSH key validation failed"
-          exit 1
-        fi
-
-    - name: Generate Ansible inventory
+    - name: Generate simple Ansible inventory
       working-directory: ./Terraform
-      timeout-minutes: 5
       run: |
         set -e
-        echo "Starting inventory generation..."
+        echo "Generating simple inventory with bastion proxy..."
 
-        # Get EC2 instance IPs from Terraform outputs
-        echo "Getting Terraform outputs..."
-          MANAGER_IPS=$(terraform output -json swarm_manager_ips | jq -r '.[]')
-          WORKER_IPS=$(terraform output -json swarm_worker_ips | jq -r '.[]')
-          BASTION_PUBL_IP=$(terraform output -raw bastion_public_ip)
+        # Get IPs from Terraform outputs
+        MANAGER_IPS=$(terraform output -json swarm_manager_ips | jq -r '.[]')
+        WORKER_IPS=$(terraform output -json swarm_worker_ips | jq -r '.[]')
+        BASTION_IP=$(terraform output -raw bastion_public_ip)
 
-          echo "MANAGER_IPS: $MANAGER_IPS"
-          echo "WORKER_IPS: $WORKER_IPS"
-          echo "BASTION_PUBL_IP: $BASTION_PUBL_IP"
+        # Update inventory with bastion IP
+        cp ../Ansible/inventory/dynamic_hosts.yml ../Ansible/inventory/hosts.yml
+        sed -i "s/BASTION_IP_PLACEHOLDER/$BASTION_IP/g" ../Ansible/inventory/hosts.yml
 
-          # Copy template and replace bastion IP
-          echo "Updating inventory template with bastion IP..."
-          cp ../Ansible/inventory/dynamic_hosts.yml ../Ansible/inventory/hosts_working.yml
-          sed -i "s/BASTION_IP_PLACEHOLDER/$BASTION_PUBL_IP/g" ../Ansible/inventory/hosts_working.yml
-
-          # Add manager nodes
-          echo "Adding manager nodes..."
-          counter=1
-          for ip in $MANAGER_IPS; do
-            echo "Adding manager node $counter: $ip"
-            sed -i "/# Manager nodes will be added here dynamically/a\\        swarm-manager-0$counter:\\n          ansible_host: $ip\\n          swarm_role: manager\\n          swarm_primary: $([ $counter -eq 1 ] && echo "true" || echo "false")" ../Ansible/inventory/hosts_working.yml
-            counter=$((counter + 1))
-          done
-          echo "Manager nodes added: $((counter-1))"
-
-          # Add worker nodes
-          echo "Adding worker nodes..."
-          counter=1
-          for ip in $WORKER_IPS; do
-            echo "Adding worker node $counter: $ip"
-            sed -i "/# Worker nodes will be added here dynamically/a\\        swarm-worker-0$counter:\\n          ansible_host: $ip\\n          swarm_role: worker" ../Ansible/inventory/hosts_working.yml
-            counter=$((counter + 1))
-          done
-          echo "Worker nodes added: $((counter-1))"
-
-          # Replace the original with working copy
-          mv ../Ansible/inventory/hosts_working.yml ../Ansible/inventory/dynamic_hosts.yml
-
-          echo "Generated inventory:"
-          if [ -f ../Ansible/inventory/dynamic_hosts.yml ]; then
-              echo "✓ Inventory file exists"
-              echo "File size: $(wc -l < ../Ansible/inventory/dynamic_hosts.yml) lines"
-              echo "--- Inventory content start ---"
-              cat ../Ansible/inventory/dynamic_hosts.yml
-              echo "--- Inventory content end ---"
-          else
-              echo "✗ ERROR: Inventory file was not created!"
-              echo "Current directory: $(pwd)"
-              echo "Files in ../Ansible/inventory/:"
-              ls -la ../Ansible/inventory/ || echo "Directory does not exist"
-              exit 1
-          fi
-
-          echo "Inventory generation completed successfully!"
-
-    - name: Test SSH connectivity
-      working-directory: ./Ansible
-      run: |
-        BASTION_IP=$(cd ../Terraform && terraform output -raw bastion_public_ip)
-        chmod 600 ~/.ssh/clo_ec2_001
-
-        # Test SSH to bastion first
-        echo "Testing SSH to bastion host..."
-        if ssh -i ~/.ssh/clo_ec2_001 -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 ec2-user@$BASTION_IP "echo 'Bastion SSH OK'"; then
-            echo "✓ SSH connection to bastion successful!"
-        else
-            echo "::error::SSH connection to bastion failed"
-            exit 1
-        fi
-
-        # Test Ansible ping to swarm nodes through bastion
-        echo "Testing Ansible connectivity to swarm nodes..."
-        for node_group in swarm_managers swarm_workers; do
-            echo "Testing $node_group..."
-            if ansible $node_group -i inventory/dynamic_hosts.yml -m ping --timeout=30 -v; then
-                echo "✓ $node_group reachable via Ansible"
-            else
-                echo "::warning::$node_group not reachable - will retry during deployment"
-            fi
+        # Add manager nodes (simple approach)
+        counter=1
+        for ip in $MANAGER_IPS; do
+          sed -i "/# Manager nodes will be added here dynamically/a\\        swarm-manager-0$counter:\\n          ansible_host: $ip" ../Ansible/inventory/hosts.yml
+          counter=$((counter + 1))
         done
 
-    - name: Configure Bastion Host
-      working-directory: ./Ansible
-      run: |
-        ansible-playbook -i inventory/dynamic_hosts.yml playbooks/bastion.yml
+        # Add worker nodes (simple approach)
+        counter=1
+        for ip in $WORKER_IPS; do
+          sed -i "/# Worker nodes will be added here dynamically/a\\        swarm-worker-0$counter:\\n          ansible_host: $ip" ../Ansible/inventory/hosts.yml
+          counter=$((counter + 1))
+        done
 
-    - name: Deploy Docker Swarm
-      working-directory: ./Ansible
-      run: |
-        ansible-playbook -i inventory/dynamic_hosts.yml playbooks/docker-swarm.yml
+        echo "Simple inventory ready:"
+        cat ../Ansible/inventory/hosts.yml
 
-    - name: Verify Docker Swarm
+    - name: Setup SSH config for bastion proxy
+      run: |
+        BASTION_IP=$(cd Terraform && terraform output -raw bastion_public_ip)
+
+        # Copy SSH key to bastion host for proxy jumping
+        echo "Copying SSH key to bastion host..."
+        scp -i ~/.ssh/clo_ec2_001 \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            ~/.ssh/clo_ec2_001 ec2-user@$BASTION_IP:~/.ssh/
+
+        ssh -i ~/.ssh/clo_ec2_001 \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            ec2-user@$BASTION_IP "chmod 600 ~/.ssh/clo_ec2_001"
+
+        # Create SSH config for easy bastion jumping
+        mkdir -p ~/.ssh
+        cat > ~/.ssh/config << 'EOF'
+        Host bastion
+            HostName BASTION_IP_PLACEHOLDER
+            User ec2-user
+            IdentityFile ~/.ssh/clo_ec2_001
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+
+        Host 10.0.*.*
+            User ec2-user
+            IdentityFile ~/.ssh/clo_ec2_001
+            ProxyJump bastion
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+        EOF
+
+        # Replace placeholder with actual IP
+        sed -i "s/BASTION_IP_PLACEHOLDER/$BASTION_IP/g" ~/.ssh/config
+        chmod 600 ~/.ssh/config
+
+        echo "SSH config ready - all connections to 10.0.*.* will proxy through bastion"
+
+    - name: Test SSH to bastion
       working-directory: ./Ansible
       run: |
-        ansible swarm_managers -i inventory/dynamic_hosts.yml \
-          -m shell -a "docker node ls" \
-          --limit "swarm_primary:true"
+        echo "Testing SSH to bastion via SSH config"
+        ssh bastion "echo 'Bastion SSH OK via config'"
+
+    - name: Deploy with Ansible (super simple)
+      working-directory: ./Ansible
+      run: |
+        # Ansible will automatically use SSH config for proxy jumping
+        ansible-playbook playbooks/docker-swarm.yml -v
+
+    - name: Verify deployment
+      working-directory: ./Ansible
+      run: |
+        # Check Docker Swarm
+        ansible swarm_managers -m shell -a "docker node ls" --limit 1
 
   # Deployment summary (runs after everything is complete).
   deployment-summary:
