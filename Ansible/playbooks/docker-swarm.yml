@@ -160,7 +160,7 @@
         --name clo-fresva-app
         --replicas 3
         --network app-network
-        --publish 80:3000
+        --publish 80:80
         --env NODE_ENV=production
         --env LOAD_BALANCED=true
         --label com.centurylinklabs.watchtower.enable=true
@@ -168,7 +168,7 @@
         --rollback-config parallelism=1,delay=10s
         --restart-condition on-failure
         --restart-max-attempts 3
-        --health-cmd "curl -f http://localhost:3000/api/health || exit 1"
+        --health-cmd "curl -f http://localhost/health || exit 1"
         --health-interval 30s
         --health-retries 3
         --health-timeout 10s
@@ -189,15 +189,15 @@
       debug:
         msg: |
           {% if image_check.rc != 0 %}
-          ❌ Image {{ app_image }} not found
-          💡 Deploy your frontend app first to make this image available
-          📝 Expected behavior: ALB will show 502 until frontend is deployed
+            Image {{ app_image }} not found
+            Deploy your frontend app first to make this image available
+            Expected behavior: ALB will show 502 until frontend is deployed
           {% elif app_result.rc == 0 %}
-          ✅ Application service deployed successfully
-          🌐 App running on port 80 (maps to container port 3000)
-          � Health check: curl http://localhost:3000/api/health
+            Application service deployed successfully
+            App running on port 80 (Nginx serving React app)
+            Health check: curl http://localhost:3000/api/health
           {% else %}
-          ⚠️  Service deployment failed: {{ app_result.stderr | default('Unknown error') }}
+            Service deployment failed: {{ app_result.stderr | default('Unknown error') }}
           {% endif %}
 
     - name: Show service status
@@ -224,7 +224,7 @@
     - name: Display deployment status
       debug:
         msg: |
-          🚀 Deployment completed!
+          Deployment completed!
           - Watchtower: {{ 'Created' if watchtower_result.changed else 'Already exists' }}
           - App Service: {{ 'Created' if app_result.changed else 'Already exists' }}
           - Health Check: {{ 'Healthy' if health_check.status == 200 else 'Failed' }}
