@@ -2,6 +2,7 @@
 resource "aws_ecr_repository" "api_lambda" {
   name                 = "${var.project_name}-api"
   image_tag_mutability = "MUTABLE"
+  force_delete        = true  # Allow deletion even with images
 
   image_scanning_configuration {
     scan_on_push = true

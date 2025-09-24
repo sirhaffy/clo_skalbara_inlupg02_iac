@@ -2,25 +2,16 @@
 
 # Log all commands for debugging
 exec > >(tee /var/log/user-data.log) 2>&1
-echo "$(date): Starting user-data script execution"
 
 # Update the system
-echo "$(date): Updating system packages"
 dnf update -y
 
-# Install necessary packages
-echo "$(date): Installing SSH packages"
+# Ensure SSH packages are installed (usually already present on Amazon Linux)
 dnf install -y openssh-server openssh-clients
 
 # Ensure SSH service is enabled and started
-echo "$(date): Enabling and starting SSH service"
 systemctl enable sshd
 systemctl start sshd
-
-# Configure SSH for security
-echo "$(date): Configuring SSH security settings"
-# Backup original config
-cp /etc/ssh/sshd_config /etc/ssh/sshd_config.backup
 
 # Basic SSH hardening
 cat >> /etc/ssh/sshd_config << 'EOF'
