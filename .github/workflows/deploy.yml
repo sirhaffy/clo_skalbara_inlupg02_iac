@@ -231,16 +231,16 @@ jobs:
         # Get URLs and save as step outputs
         ALB_DNS=$(terraform output -raw alb_dns_name 2>/dev/null || echo "Not available")
         API_URL=$(terraform output -raw api_gateway_url 2>/dev/null || echo "Not available")
-        BASTION_IP=$(terraform output -raw bastion_public_ip 2>/dev/null || echo "Not available")
+        BASTION_PUBL_IP=$(terraform output -raw bastion_public_ip 2>/dev/null || echo "Not available")
         BASTION_SSH=$(terraform output -raw bastion_ssh_command 2>/dev/null || echo "Not available")
 
         echo "alb-dns=$ALB_DNS" >> $GITHUB_OUTPUT
         echo "api-url=$API_URL" >> $GITHUB_OUTPUT
-        echo "bastion-ip=$BASTION_IP" >> $GITHUB_OUTPUT
+        echo "bastion-ip=$BASTION_PUBL_IP" >> $GITHUB_OUTPUT
         echo "bastion-ssh=$BASTION_SSH" >> $GITHUB_OUTPUT
 
         echo "Infrastructure created successfully"
-        echo "Bastion host: $BASTION_IP"
+        echo "Bastion host public IP: $BASTION_PUBL_IP"
         echo "NEXT: Ansible will configure Docker Swarm..."
 
   # Ansible deployment after Terraform completion
@@ -292,11 +292,12 @@ jobs:
         echo "Getting Terraform outputs..."
         MANAGER_IPS=$(terraform output -json swarm_manager_ips | jq -r '.[]')
         WORKER_IPS=$(terraform output -json swarm_worker_ips | jq -r '.[]')
-        BASTION_IP=$(terraform output -raw bastion_public_ip)
+
+        BASTION_PUBL_IP=$(terraform output -raw bastion_public_ip)
 
         echo "MANAGER_IPS: $MANAGER_IPS"
         echo "WORKER_IPS: $WORKER_IPS"
-        echo "BASTION_IP: $BASTION_IP"
+        echo "BASTION_PUBL_IP: $BASTION_PUBL_IP"
 
         # Generate simplified inventory
         echo "Creating inventory file..."
@@ -310,11 +311,11 @@ jobs:
         bastion_hosts:
           hosts:
             bastion-01:
-              ansible_host: $BASTION_IP
+              ansible_host: $BASTION_PUBL_IP
 
         docker_swarm:
           vars:
-            ansible_ssh_common_args: '-o ProxyJump=ec2-user@$BASTION_IP'
+            ansible_ssh_common_args: '-o ProxyJump=ec2-user@$BASTION_PUBL_IP'
           children:
             swarm_managers:
               hosts:
@@ -364,48 +365,122 @@ jobs:
     - name: Test SSH connectivity
       working-directory: ./Ansible
       run: |
-        echo "Testing SSH connectivity..."
-        BASTION_IP=$(cd ../Terraform && terraform output -raw bastion_public_ip)
+        echo "=== Enhanced SSH connectivity test ==="
 
-        # Configure SSH like the working example
+        # Get bastion IP from Terraform
+        BASTION_IP=$(cd ../Terraform && terraform output -raw bastion_public_ip)
+        echo "Bastion IP: $BASTION_IP"
+
+        # Verify SSH key exists
+        if [ ! -f ~/.ssh/clo_ec2_001 ]; then
+            echo "::error::SSH private key not found at ~/.ssh/clo_ec2_001"
+            exit 1
+        fi
+
+        # Set proper permissions on SSH key
+        chmod 600 ~/.ssh/clo_ec2_001
+        echo "SSH key permissions set to 600"
+
+        # Create SSH config
         cat > ~/.ssh/config << EOF
         Host bastion
           HostName $BASTION_IP
           User ec2-user
           IdentityFile ~/.ssh/clo_ec2_001
           StrictHostKeyChecking no
+          UserKnownHostsFile /dev/null
           IdentitiesOnly yes
           ConnectTimeout 10
-          BatchMode yes
+          ServerAliveInterval 30
+          ServerAliveCountMax 3
+          LogLevel VERBOSE
         EOF
         chmod 600 ~/.ssh/config
+        echo "SSH config created"
 
-        # Add host key to known_hosts (like the working example)
-        ssh-keyscan -t rsa $BASTION_IP >> ~/.ssh/known_hosts 2>/dev/null || true
+        # Test basic network connectivity first
+        echo "=== Testing network connectivity ==="
+        if ping -c 3 -W 5 $BASTION_IP; then
+            echo "✓ Ping to bastion successful"
+        else
+            echo "✗ Ping to bastion failed"
+        fi
 
-        # Wait for SSH connection with retry logic (like the working example)
-        echo "Waiting for SSH connection to bastion..."
-        for i in {1..10}; do
-          echo "Attempt $i/10..."
-          if ssh -v -o ConnectTimeout=10 bastion "echo 'SSH Connected to bastion!'; hostname; whoami"; then
-            echo "SSH connection established!"
-            break
-          fi
+        # Test if port 22 is open
+        echo "=== Testing port 22 connectivity ==="
+        if timeout 10 nc -zv $BASTION_IP 22 2>&1; then
+            echo "✓ Port 22 is reachable"
+        else
+            echo "✗ Port 22 is not reachable or filtered"
+        fi
 
-          if [ $i -eq 10 ]; then
-            echo "::error::Failed to establish SSH connection after 10 attempts"
-            exit 1
-          fi
+        # Check if instance is running (requires AWS CLI)
+        echo "=== Checking EC2 instance status ==="
+        if command -v aws >/dev/null 2>&1; then
+            # Try to get instance information
+            INSTANCE_INFO=$(aws ec2 describe-instances --filters "Name=ip-address,Values=$BASTION_IP" --query 'Reservations[*].Instances[*].[InstanceId,State.Name,PublicIpAddress]' --output text 2>/dev/null)
+            if [ -n "$INSTANCE_INFO" ]; then
+                echo "Instance info: $INSTANCE_INFO"
+            else
+                echo "Could not retrieve instance information"
+            fi
+        else
+            echo "AWS CLI not available for instance status check"
+        fi
 
-          echo "SSH not ready yet, waiting 30 seconds..."
-          sleep 30
-        done
+        # Wait for SSH with enhanced retry logic
+        echo "=== Waiting for SSH service ==="
+        MAX_ATTEMPTS=15
+        WAIT_TIME=30
 
-        # Test connection to Docker nodes via bastion
-        echo "Testing Docker Swarm node connectivity..."
-        for node in swarm_managers swarm_workers; do
-          echo "Testing $node group..."
-          ansible $node -i inventory/dynamic_hosts.yml -m ping || echo "Warning: $node not reachable yet"
+        for attempt in $(seq 1 $MAX_ATTEMPTS); do
+            echo "SSH attempt $attempt/$MAX_ATTEMPTS..."
+
+            # First check if port is open before trying SSH
+            if timeout 5 nc -z $BASTION_IP 22 2>/dev/null; then
+                echo "Port 22 is open, attempting SSH connection..."
+
+                # Try SSH connection with detailed output
+                if timeout 15 ssh -v -o ConnectTimeout=10 -o BatchMode=yes bastion "echo 'SSH Connected to bastion!'; hostname; whoami" 2>&1; then
+                    echo "✓ SSH connection established successfully!"
+
+                    # Test Ansible connectivity
+                    echo "=== Testing Ansible connectivity ==="
+                    cd ../Ansible || exit 1
+
+                    echo "Testing Docker Swarm node connectivity..."
+                    for node_group in swarm_managers swarm_workers; do
+                        echo "Testing $node_group group..."
+                        if ansible $node_group -i inventory/dynamic_hosts.yml -m ping -v; then
+                            echo "✓ $node_group reachable"
+                        else
+                            echo "✗ $node_group not reachable"
+                        fi
+                    done
+
+                    exit 0
+                else
+                    echo "SSH connection failed with exit code $?"
+                fi
+            else
+                echo "Port 22 is not yet open"
+            fi
+
+            if [ $attempt -eq $MAX_ATTEMPTS ]; then
+                echo "::error::Failed to establish SSH connection after $MAX_ATTEMPTS attempts"
+
+                # Final diagnostics
+                echo "=== Final diagnostic information ==="
+                echo "Bastion IP: $BASTION_IP"
+                echo "Current time: $(date)"
+                echo "Network route to bastion:"
+                traceroute -m 10 $BASTION_IP 2>/dev/null || echo "Traceroute not available"
+
+                exit 1
+            fi
+
+            echo "Waiting ${WAIT_TIME} seconds before next attempt..."
+            sleep $WAIT_TIME
         done
 
     - name: Configure Bastion Host

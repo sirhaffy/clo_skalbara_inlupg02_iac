@@ -75,4 +75,4 @@ output "worker2_private_ip" {
   value       = length(module.docker_swarm.swarm_worker_private_ips) > 1 ? module.docker_swarm.swarm_worker_private_ips[1] : null
 }
 
-# Note: The individual node IP outputs are primarily for testing and verification purposes.
+# Note: The individual node IP outputs are primarily for testing and verification purposes..
