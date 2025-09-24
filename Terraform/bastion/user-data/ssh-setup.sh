@@ -3,10 +3,7 @@
 # Log all commands for debugging
 exec > >(tee /var/log/user-data.log) 2>&1
 
-# Update the system
 dnf update -y
-
-# Ensure SSH packages are installed (usually already present on Amazon Linux)
 dnf install -y openssh-server openssh-clients
 
 # Ensure SSH service is enabled and started
@@ -51,15 +48,4 @@ fi
 # Restart SSH service to apply configuration
 echo "$(date): Restarting SSH service to apply configuration"
 systemctl restart sshd
-
-# Test SSH service
-echo "$(date): Final SSH service status check"
-systemctl status sshd
-if systemctl is-active --quiet sshd; then
-    echo "$(date): SSH service is running successfully"
-else
-    echo "$(date): ERROR - SSH service failed to start"
-fi
-
-echo "$(date): User-data script completed"
 

@@ -33,6 +33,9 @@ jobs:
     name: 'Setup Terraform Backend (S3 + DynamoDB)'
     runs-on: ubuntu-latest
     if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'deploy')
+    outputs:
+      state-bucket-name: ${{ steps.setup-backend.outputs.state-bucket-name }}
+      lock-table-name: ${{ steps.setup-backend.outputs.lock-table-name }}
 
     steps:
     - name: Checkout
@@ -45,7 +48,8 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
 
-    - name: Get configuration from Parameter Store
+    - name: Setup backend infrastructure
+      id: setup-backend
       run: |
         STATE_BUCKET_NAME=$(aws ssm get-parameter --name "/terraform/state-bucket-name" --query "Parameter.Value" --output text 2>/dev/null || echo "")
         LOCK_TABLE_NAME=$(aws ssm get-parameter --name "/terraform/lock-table-name" --query "Parameter.Value" --output text 2>/dev/null || echo "")
@@ -60,24 +64,32 @@ jobs:
           aws ssm put-parameter --name "/terraform/lock-table-name" --value "$LOCK_TABLE_NAME" --type "String" --description "Terraform state lock DynamoDB table name"
         fi
 
-        echo "STATE_BUCKET_NAME=$STATE_BUCKET_NAME" >> $GITHUB_ENV
-        echo "LOCK_TABLE_NAME=$LOCK_TABLE_NAME" >> $GITHUB_ENV
+        # Set outputs
+        echo "state-bucket-name=$STATE_BUCKET_NAME" >> $GITHUB_OUTPUT
+        echo "lock-table-name=$LOCK_TABLE_NAME" >> $GITHUB_OUTPUT
 
-    - name: Setup S3 bucket and DynamoDB
-      run: |
+        # Setup S3 bucket
         if ! aws s3api head-bucket --bucket "$STATE_BUCKET_NAME" 2>/dev/null; then
+          echo "Creating S3 bucket: $STATE_BUCKET_NAME"
           aws s3 mb "s3://$STATE_BUCKET_NAME" --region "$AWS_REGION"
           aws s3api put-bucket-versioning --bucket "$STATE_BUCKET_NAME" --versioning-configuration Status=Enabled
           aws s3api put-bucket-encryption --bucket "$STATE_BUCKET_NAME" --server-side-encryption-configuration '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
           aws s3api put-public-access-block --bucket "$STATE_BUCKET_NAME" --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
         fi
 
+        # Setup DynamoDB table
         if ! aws dynamodb describe-table --table-name "$LOCK_TABLE_NAME" --region "$AWS_REGION" 2>/dev/null; then
-          aws dynamodb create-table --table-name "$LOCK_TABLE_NAME" --attribute-definitions AttributeName=LockID,AttributeType=S --key-schema AttributeName=LockID,KeyType=HASH --provisioned-throughput ReadCapacityUnits=1,WriteCapacityUnits=1 --region "$AWS_REGION"
+          echo "Creating DynamoDB table: $LOCK_TABLE_NAME"
+          aws dynamodb create-table \
+            --table-name "$LOCK_TABLE_NAME" \
+            --attribute-definitions AttributeName=LockID,AttributeType=S \
+            --key-schema AttributeName=LockID,KeyType=HASH \
+            --provisioned-throughput ReadCapacityUnits=1,WriteCapacityUnits=1 \
+            --region "$AWS_REGION"
           aws dynamodb wait table-exists --table-name "$LOCK_TABLE_NAME" --region "$AWS_REGION"
         fi
 
-  # Terraform validation (on PRs) to catch errors early.
+  # Terraform validation (on PRs)
   terraform-check:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
@@ -117,7 +129,7 @@ jobs:
         TF_VAR_ssh_key_name: ${{ secrets.SSH_KEY_NAME }}
         TF_VAR_GH_ACTIONS_USER_NAME: ${{ secrets.GH_ACTIONS_USER_NAME }}
 
-  # Ansible validation (on PRs) to catch errors early.
+  # Ansible validation (on PRs)
   ansible-check:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
@@ -141,11 +153,6 @@ jobs:
     runs-on: ubuntu-latest
     if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'deploy')
     needs: setup-backend
-    outputs:
-      alb-dns: ${{ steps.save-urls.outputs.alb-dns }}
-      api-url: ${{ steps.save-urls.outputs.api-url }}
-      bastion-ip: ${{ steps.save-urls.outputs.bastion-ip }}
-      bastion-ssh: ${{ steps.save-urls.outputs.bastion-ssh }}
 
     steps:
     - name: Checkout code
@@ -177,25 +184,6 @@ jobs:
     - name: Terraform Apply
       working-directory: ./Terraform
       run: terraform apply -auto-approve tfplan
-
-    - name: Save infrastructure URLs
-      id: save-urls
-      working-directory: ./Terraform
-      run: |
-        # Get URLs and save as step outputs
-        ALB_DNS=$(terraform output -raw alb_dns_name 2>/dev/null || echo "Not available")
-        API_URL=$(terraform output -raw api_gateway_url 2>/dev/null || echo "Not available")
-        BASTION_PUBL_IP=$(terraform output -raw bastion_public_ip 2>/dev/null || echo "Not available")
-        BASTION_SSH=$(terraform output -raw bastion_ssh_command 2>/dev/null || echo "Not available")
-
-        echo "alb-dns=$ALB_DNS" >> $GITHUB_OUTPUT
-        echo "api-url=$API_URL" >> $GITHUB_OUTPUT
-        echo "bastion-ip=$BASTION_PUBL_IP" >> $GITHUB_OUTPUT
-        echo "bastion-ssh=$BASTION_SSH" >> $GITHUB_OUTPUT
-
-        echo "Infrastructure created successfully"
-        echo "Bastion host public IP: $BASTION_PUBL_IP"
-        echo "NEXT: Ansible will configure Docker Swarm..."
 
   # Ansible deployment after Terraform completion
   ansible-deploy:
@@ -234,133 +222,44 @@ jobs:
         echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/clo_ec2_001
         chmod 600 ~/.ssh/clo_ec2_001
 
-    - name: Generate Ansible inventory with yq
-      working-directory: ./Terraform
-      run: |
-        set -e
-        echo "Generating inventory with yq (YAML processor)..."
-
-        # Install yq for YAML manipulation
-        sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-        sudo chmod +x /usr/local/bin/yq
-
-        # Get IPs from Terraform outputs
-        MANAGER_IPS=$(terraform output -json swarm_manager_ips)
-        WORKER_IPS=$(terraform output -json swarm_worker_ips)
-        BASTION_IP=$(terraform output -raw bastion_public_ip)
-
-        echo "Found IPs:"
-        echo "Managers: $(echo $MANAGER_IPS | jq -r '.[]')"
-        echo "Workers: $(echo $WORKER_IPS | jq -r '.[]')"
-        echo "Bastion: $BASTION_IP"
-
-        # Start with base template
-        cp ../Ansible/inventory/dynamic_hosts.yml ../Ansible/inventory/hosts.yml
-
-        # Update bastion IP using yq
-        yq eval ".bastion_hosts.hosts.\"bastion-01\".ansible_host = \"$BASTION_IP\"" -i ../Ansible/inventory/hosts.yml
-
-        # Add manager nodes using yq
-        counter=1
-        for ip in $(echo $MANAGER_IPS | jq -r '.[]'); do
-          yq eval ".docker_swarm.children.swarm_managers.hosts.\"swarm-manager-0$counter\".ansible_host = \"$ip\"" -i ../Ansible/inventory/hosts.yml
-          counter=$((counter + 1))
-        done
-
-        # Add worker nodes using yq
-        counter=1
-        for ip in $(echo $WORKER_IPS | jq -r '.[]'); do
-          yq eval ".docker_swarm.children.swarm_workers.hosts.\"swarm-worker-0$counter\".ansible_host = \"$ip\"" -i ../Ansible/inventory/hosts.yml
-          counter=$((counter + 1))
-        done
-
-        echo "Generated inventory file:"
-        cat ../Ansible/inventory/hosts.yml
-
     - name: Setup SSH config for bastion proxy
       run: |
         BASTION_IP=$(cd Terraform && terraform output -raw bastion_public_ip)
 
-        # Copy SSH key to bastion host for proxy jumping
-        echo "Copying SSH key to bastion host..."
-        scp -i ~/.ssh/clo_ec2_001 \
-            -o StrictHostKeyChecking=no \
-            -o UserKnownHostsFile=/dev/null \
-            ~/.ssh/clo_ec2_001 ec2-user@$BASTION_IP:~/.ssh/
-
-        ssh -i ~/.ssh/clo_ec2_001 \
-            -o StrictHostKeyChecking=no \
-            -o UserKnownHostsFile=/dev/null \
-            ec2-user@$BASTION_IP "chmod 600 ~/.ssh/clo_ec2_001"
-
-        # Create SSH config for easy bastion jumping
+        # Create SSH config for proxy jumping (no inventory needed!)
         mkdir -p ~/.ssh
-        cat > ~/.ssh/config << 'EOF'
-        Host bastion
-            HostName BASTION_IP_PLACEHOLDER
-            User ec2-user
-            IdentityFile ~/.ssh/clo_ec2_001
-            StrictHostKeyChecking no
-            UserKnownHostsFile /dev/null
-
-        Host 10.0.*.*
-            User ec2-user
-            IdentityFile ~/.ssh/clo_ec2_001
-            ProxyJump bastion
-            StrictHostKeyChecking no
-            UserKnownHostsFile /dev/null
-        EOF
-
-        # Replace placeholder with actual IP
-        sed -i "s/BASTION_IP_PLACEHOLDER/$BASTION_IP/g" ~/.ssh/config
+        echo "Host bastion" > ~/.ssh/config
+        echo "    HostName $BASTION_IP" >> ~/.ssh/config
+        echo "    User ec2-user" >> ~/.ssh/config
+        echo "    IdentityFile ~/.ssh/clo_ec2_001" >> ~/.ssh/config
+        echo "    StrictHostKeyChecking no" >> ~/.ssh/config
+        echo "    UserKnownHostsFile /dev/null" >> ~/.ssh/config
+        echo "" >> ~/.ssh/config
+        echo "Host 10.0.*.*" >> ~/.ssh/config
+        echo "    User ec2-user" >> ~/.ssh/config
+        echo "    IdentityFile ~/.ssh/clo_ec2_001" >> ~/.ssh/config
+        echo "    ProxyJump bastion" >> ~/.ssh/config
+        echo "    StrictHostKeyChecking no" >> ~/.ssh/config
+        echo "    UserKnownHostsFile /dev/null" >> ~/.ssh/config
         chmod 600 ~/.ssh/config
 
-        echo "SSH config ready - all connections to 10.0.*.* will proxy through bastion"
+    - name: Install AWS EC2 plugin for Ansible
+      run: |
+        pip install boto3 botocore
 
-    - name: Test SSH to bastion
+    - name: Deploy with Ansible (using AWS EC2 plugin - no inventory file!)
       working-directory: ./Ansible
       run: |
-        echo "Testing SSH to bastion via SSH config"
-        ssh bastion "echo 'Bastion SSH OK via config'"
-
-    - name: Deploy with Ansible
-      working-directory: ./Ansible
-      run: |
-        # Ansible will automatically use SSH config for proxy jumping
-        ansible-playbook playbooks/docker-swarm.yml -v
+        # Ansible auto-discovers EC2 instances with tags
+        ansible-playbook playbooks/docker-swarm.yml -i aws_ec2.yml -v
 
     - name: Verify deployment
       working-directory: ./Ansible
       run: |
-        # Check Docker Swarm
-        ansible swarm_managers -m shell -a "docker node ls" --limit 1
+        # Use AWS EC2 plugin to find managers
+        ansible tag_Role_swarm_manager -i aws_ec2.yml -m shell -a "docker node ls" --limit 1
 
-  # Deployment summary (runs after everything is complete).
-  deployment-summary:
-    runs-on: ubuntu-latest
-    if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'deploy')
-    needs: [terraform-apply, ansible-deploy]  # Wait for both jobs
-
-    steps:
-    - name: Deployment Summary
-      run: |
-        echo "=================================================="
-        echo "        DEPLOYMENT COMPLETED SUCCESSFULLY!        "
-        echo "=================================================="
-        echo ""
-        echo "   Frontend: http://${{ needs.terraform-apply.outputs.alb-dns }}"
-        echo "   API:      ${{ needs.terraform-apply.outputs.api-url }}"
-        echo ""
-        echo "   Bastion Host: ${{ needs.terraform-apply.outputs.bastion-ip }}"
-        echo "   SSH Command: ${{ needs.terraform-apply.outputs.bastion-ssh }}"
-        echo ""
-        echo "   From bastion, you can SSH to your Docker Swarm nodes:"
-        echo "   ssh ec2-user@<private-ip-of-swarm-node>"
-        echo ""
-        echo "=================================================="
-
-
-  # Manual workflow to Destroy infrastructure
+  # Destroy infrastructure
   destroy:
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
@@ -381,6 +280,14 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
 
+    - name: Get backend configuration
+      run: |
+        STATE_BUCKET_NAME=$(aws ssm get-parameter --name "/terraform/state-bucket-name" --query "Parameter.Value" --output text 2>/dev/null || echo "")
+        LOCK_TABLE_NAME=$(aws ssm get-parameter --name "/terraform/lock-table-name" --query "Parameter.Value" --output text 2>/dev/null || echo "")
+
+        echo "STATE_BUCKET_NAME=$STATE_BUCKET_NAME" >> $GITHUB_ENV
+        echo "LOCK_TABLE_NAME=$LOCK_TABLE_NAME" >> $GITHUB_ENV
+
     - name: Terraform Init
       working-directory: ./Terraform
       run: terraform init
@@ -392,10 +299,20 @@ jobs:
         TF_VAR_ssh_key_name: ${{ secrets.SSH_KEY_NAME }}
         TF_VAR_GH_ACTIONS_USER_NAME: ${{ secrets.GH_ACTIONS_USER_NAME }}
 
-    - name: Cleanup S3 bucket and DynamoDB (optional)
+    - name: Cleanup backend resources (optional)
       run: |
-        echo "Removing Terraform state resources..."
-        aws s3 rm "s3://$STATE_BUCKET_NAME" --recursive || true
-        aws s3 rb "s3://$STATE_BUCKET_NAME" || true
-        aws dynamodb delete-table --table-name "$LOCK_TABLE_NAME" --region "$AWS_REGION" || true
+        if [ -n "$STATE_BUCKET_NAME" ] && [ "$STATE_BUCKET_NAME" != "" ]; then
+          echo "Cleaning up Terraform state resources..."
+          aws s3 rm "s3://$STATE_BUCKET_NAME" --recursive || true
+          aws s3 rb "s3://$STATE_BUCKET_NAME" || true
+        fi
+
+        if [ -n "$LOCK_TABLE_NAME" ] && [ "$LOCK_TABLE_NAME" != "" ]; then
+          aws dynamodb delete-table --table-name "$LOCK_TABLE_NAME" --region "$AWS_REGION" || true
+        fi
+
+        # Remove SSM parameters
+        aws ssm delete-parameter --name "/terraform/state-bucket-name" || true
+        aws ssm delete-parameter --name "/terraform/lock-table-name" || true
+
         echo "Cleanup completed"
