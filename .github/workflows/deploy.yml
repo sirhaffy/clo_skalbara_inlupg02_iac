@@ -264,33 +264,46 @@ jobs:
     - name: Deployment Summary
       working-directory: ./Terraform
       run: |
-        echo "=================================================="
-        echo "        DEPLOYMENT COMPLETED SUCCESSFULLY        "
-        echo "=================================================="
-        echo ""
-
+        # Get deployment info
         ALB_DNS=$(terraform output -raw alb_dns_name 2>/dev/null || echo "Not available")
         BASTION_IP=$(terraform output -raw bastion_public_ip 2>/dev/null || echo "Not available")
         MANAGER_IPS=$(terraform output -json swarm_manager_ips 2>/dev/null | jq -r '.[]' | head -1 || echo "Not available")
 
-        echo "Frontend: http://$ALB_DNS"
-        echo "Bastion Host: $BASTION_IP"
-        echo "SSH to Bastion:"
-        echo "  ssh -i ~/.ssh/clo_ec2_001.pem ec2-user@$BASTION_IP"
-        echo ""
-        echo "SSH to Docker Manager (via bastion):"
+        # Create GitHub Actions Job Summary
+        echo "# Deployment Completed Successfully" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## Application Access" >> $GITHUB_STEP_SUMMARY
+        echo "- **Frontend URL**: [http://$ALB_DNS](http://$ALB_DNS)" >> $GITHUB_STEP_SUMMARY
+        echo "- **Load Balancer**: $ALB_DNS" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## Infrastructure Access" >> $GITHUB_STEP_SUMMARY
+        echo "- **Bastion Host**: $BASTION_IP" >> $GITHUB_STEP_SUMMARY
+        echo "- **Docker Manager**: $MANAGER_IPS" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## SSH Access Commands" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+        echo "# SSH to Bastion Host" >> $GITHUB_STEP_SUMMARY
+        echo "ssh -i ~/.ssh/clo_ec2_001.pem ec2-user@$BASTION_IP" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "# SSH to Docker Manager (via bastion)" >> $GITHUB_STEP_SUMMARY
         if [ "$MANAGER_IPS" != "Not available" ]; then
-          echo "  ssh -i ~/.ssh/clo_ec2_001.pem -o ProxyJump=ec2-user@$BASTION_IP ec2-user@$MANAGER_IPS"
+          echo "ssh -i ~/.ssh/clo_ec2_001.pem -o ProxyJump=ec2-user@$BASTION_IP ec2-user@$MANAGER_IPS" >> $GITHUB_STEP_SUMMARY
         else
-          echo "  Manager IP not available"
+          echo "# Manager IP not available" >> $GITHUB_STEP_SUMMARY
         fi
-        echo ""
-        echo "To fix host key issues, run:"
-        echo "  ssh-keygen -f ~/.ssh/known_hosts -R $BASTION_IP"
-        echo ""
-        echo "=================================================="
-
-  # Destroy infrastructure
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## Troubleshooting" >> $GITHUB_STEP_SUMMARY
+        echo "If you encounter SSH host key issues:" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+        echo "ssh-keygen -f ~/.ssh/known_hosts -R $BASTION_IP" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## Deployment Details" >> $GITHUB_STEP_SUMMARY
+        echo "- **Date**: $(date)" >> $GITHUB_STEP_SUMMARY
+        echo "- **Region**: eu-north-1" >> $GITHUB_STEP_SUMMARY
+        echo "- **Environment**: dev" >> $GITHUB_STEP_SUMMARY
+        echo "- **Docker Image**: haffy/clo-fresva-app:latest" >> $GITHUB_STEP_SUMMARY  # Destroy infrastructure
   destroy:
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
