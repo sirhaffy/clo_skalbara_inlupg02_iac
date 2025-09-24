@@ -234,36 +234,47 @@ jobs:
         echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/clo_ec2_001
         chmod 600 ~/.ssh/clo_ec2_001
 
-    - name: Generate simple Ansible inventory
+    - name: Generate Ansible inventory with yq
       working-directory: ./Terraform
       run: |
         set -e
-        echo "Generating simple inventory with bastion proxy..."
+        echo "Generating inventory with yq (YAML processor)..."
+
+        # Install yq for YAML manipulation
+        sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+        sudo chmod +x /usr/local/bin/yq
 
         # Get IPs from Terraform outputs
-        MANAGER_IPS=$(terraform output -json swarm_manager_ips | jq -r '.[]')
-        WORKER_IPS=$(terraform output -json swarm_worker_ips | jq -r '.[]')
+        MANAGER_IPS=$(terraform output -json swarm_manager_ips)
+        WORKER_IPS=$(terraform output -json swarm_worker_ips)
         BASTION_IP=$(terraform output -raw bastion_public_ip)
 
-        # Update inventory with bastion IP
+        echo "Found IPs:"
+        echo "Managers: $(echo $MANAGER_IPS | jq -r '.[]')"
+        echo "Workers: $(echo $WORKER_IPS | jq -r '.[]')"
+        echo "Bastion: $BASTION_IP"
+
+        # Start with base template
         cp ../Ansible/inventory/dynamic_hosts.yml ../Ansible/inventory/hosts.yml
-        sed -i "s/BASTION_IP_PLACEHOLDER/$BASTION_IP/g" ../Ansible/inventory/hosts.yml
 
-        # Add manager nodes (simple approach)
+        # Update bastion IP using yq
+        yq eval ".bastion_hosts.hosts.\"bastion-01\".ansible_host = \"$BASTION_IP\"" -i ../Ansible/inventory/hosts.yml
+
+        # Add manager nodes using yq
         counter=1
-        for ip in $MANAGER_IPS; do
-          sed -i "/# Manager nodes will be added here dynamically/a\\        swarm-manager-0$counter:\\n          ansible_host: $ip" ../Ansible/inventory/hosts.yml
+        for ip in $(echo $MANAGER_IPS | jq -r '.[]'); do
+          yq eval ".docker_swarm.children.swarm_managers.hosts.\"swarm-manager-0$counter\".ansible_host = \"$ip\"" -i ../Ansible/inventory/hosts.yml
           counter=$((counter + 1))
         done
 
-        # Add worker nodes (simple approach)
+        # Add worker nodes using yq
         counter=1
-        for ip in $WORKER_IPS; do
-          sed -i "/# Worker nodes will be added here dynamically/a\\        swarm-worker-0$counter:\\n          ansible_host: $ip" ../Ansible/inventory/hosts.yml
+        for ip in $(echo $WORKER_IPS | jq -r '.[]'); do
+          yq eval ".docker_swarm.children.swarm_workers.hosts.\"swarm-worker-0$counter\".ansible_host = \"$ip\"" -i ../Ansible/inventory/hosts.yml
           counter=$((counter + 1))
         done
 
-        echo "Simple inventory ready:"
+        echo "Generated inventory file:"
         cat ../Ansible/inventory/hosts.yml
 
     - name: Setup SSH config for bastion proxy
@@ -312,7 +323,7 @@ jobs:
         echo "Testing SSH to bastion via SSH config"
         ssh bastion "echo 'Bastion SSH OK via config'"
 
-    - name: Deploy with Ansible (super simple)
+    - name: Deploy with Ansible
       working-directory: ./Ansible
       run: |
         # Ansible will automatically use SSH config for proxy jumping
