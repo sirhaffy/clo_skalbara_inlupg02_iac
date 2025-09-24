@@ -281,6 +281,10 @@ jobs:
         echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/clo_ec2_001
         chmod 600 ~/.ssh/clo_ec2_001
 
+        # Start SSH agent and add key for forwarding
+        eval $(ssh-agent -s)
+        ssh-add ~/.ssh/clo_ec2_001
+
     - name: Generate Ansible inventory
       working-directory: ./Terraform
       timeout-minutes: 5
@@ -398,6 +402,13 @@ jobs:
                 echo "Final attempt with detailed error output:"
                 if ssh -i ~/.ssh/clo_ec2_001 -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 ec2-user@$BASTION_IP "echo 'SSH OK'; hostname"; then
                     echo "✓ SSH connection to bastion successful!"
+
+                    # Check user_data logs on bastion to see what happened
+                    echo "=== Checking user_data execution logs ==="
+                    ssh -i ~/.ssh/clo_ec2_001 -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ec2-user@$BASTION_IP "sudo tail -50 /var/log/user-data.log 2>/dev/null || echo 'No user-data.log found'"
+                    ssh -i ~/.ssh/clo_ec2_001 -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ec2-user@$BASTION_IP "sudo systemctl status sshd --no-pager"
+                    echo "=== End user_data logs ==="
+
                     break
                 else
                     echo "::error::SSH connection failed after $MAX_ATTEMPTS attempts"
@@ -407,6 +418,13 @@ jobs:
             else
                 if ssh -i ~/.ssh/clo_ec2_001 -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 ec2-user@$BASTION_IP "echo 'SSH OK'; hostname" 2>/dev/null; then
                     echo "✓ SSH connection to bastion successful!"
+
+                    # Check user_data logs on bastion to see what happened
+                    echo "=== Checking user_data execution logs ==="
+                    ssh -i ~/.ssh/clo_ec2_001 -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ec2-user@$BASTION_IP "sudo tail -50 /var/log/user-data.log 2>/dev/null || echo 'No user-data.log found'"
+                    ssh -i ~/.ssh/clo_ec2_001 -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ec2-user@$BASTION_IP "sudo systemctl status sshd --no-pager"
+                    echo "=== End user_data logs ==="
+
                     break
                 else
                     echo "SSH failed, waiting ${WAIT_TIME} seconds..."

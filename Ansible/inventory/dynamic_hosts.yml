@@ -11,7 +11,7 @@ bastion_hosts:
 
 docker_swarm:
   vars:
-    ansible_ssh_common_args: '-o ProxyJump=ec2-user@BASTION_IP_PLACEHOLDER -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+    ansible_ssh_common_args: '-o ProxyJump=ec2-user@BASTION_IP_PLACEHOLDER -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ForwardAgent=yes -o ConnectTimeout=60'
   children:
     swarm_managers:
       hosts:

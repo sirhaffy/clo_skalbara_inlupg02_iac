@@ -10,6 +10,14 @@ resource "aws_instance" "swarm_manager" {
   subnet_id             = var.private_subnets[0]
   vpc_security_group_ids = [var.web_sg_id]
 
+  # User data script to set up SSH and Docker
+  user_data = base64encode(templatefile("${path.module}/user-data/swarm-setup.sh", {
+    # Add variables to pass to the script if needed
+  }))
+
+  # Ensure user data runs completely
+  user_data_replace_on_change = true
+
   tags = {
     Name        = "${var.project_name}-swarm-manager-${count.index + 1}"
     Environment = var.environment
@@ -27,6 +35,14 @@ resource "aws_instance" "swarm_worker" {
   key_name              = var.ssh_key_name
   subnet_id             = var.private_subnets[count.index % length(var.private_subnets)]
   vpc_security_group_ids = [var.web_sg_id]
+
+  # User data script to set up SSH and Docker
+  user_data = base64encode(templatefile("${path.module}/user-data/swarm-setup.sh", {
+    # Add variables to pass to the script if needed
+  }))
+
+  # Ensure user data runs completely
+  user_data_replace_on_change = true
 
   tags = {
     Name        = "${var.project_name}-swarm-worker-${count.index + 1}"
