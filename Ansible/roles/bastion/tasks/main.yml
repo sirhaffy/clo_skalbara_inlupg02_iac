@@ -8,7 +8,7 @@
     update_cache: true
   become: true
 
-# SSH Security Hardening ONLY
+# SSH Security Hardening - MINIMAL and SAFE settings only
 - name: Configure SSH security settings
   lineinfile:
     path: /etc/ssh/sshd_config
@@ -21,18 +21,11 @@
     - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin no' }
     - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication no' }
     - { regexp: '^#?PubkeyAuthentication', line: 'PubkeyAuthentication yes' }
-    - { regexp: '^#?AuthorizedKeysFile', line: 'AuthorizedKeysFile .ssh/authorized_keys' }
     - { regexp: '^#?PermitEmptyPasswords', line: 'PermitEmptyPasswords no' }
-    - { regexp: '^#?ChallengeResponseAuthentication', line: 'ChallengeResponseAuthentication no' }
-    - { regexp: '^#?UsePAM', line: 'UsePAM yes' }
     - { regexp: '^#?X11Forwarding', line: 'X11Forwarding no' }
-    - { regexp: '^#?PrintMotd', line: 'PrintMotd no' }
     - { regexp: '^#?ClientAliveInterval', line: 'ClientAliveInterval 300' }
     - { regexp: '^#?ClientAliveCountMax', line: 'ClientAliveCountMax 2' }
-    - { regexp: '^#?AllowUsers', line: 'AllowUsers ec2-user' }
-    - { regexp: '^#?Protocol', line: 'Protocol 2' }
     - { regexp: '^#?AllowAgentForwarding', line: 'AllowAgentForwarding yes' }
-    - { regexp: '^#?ForwardAgent', line: 'ForwardAgent yes' }
   notify: restart sshd
 
 - name: Set SSH banner

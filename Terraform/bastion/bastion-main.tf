@@ -22,9 +22,9 @@ resource "aws_instance" "bastion" {
   subnet_id                  = var.public_subnet_id
   associate_public_ip_address = true
 
-  # Enhanced user_data for better SSH service and network diagnostics
+  # User data script to set up SSH
   user_data = base64encode(templatefile("${path.module}/user-data/ssh-setup.sh", {
-    # You can pass variables here if needed
+    # Add variables to pass to the script if needed..
   }))
 
   # Ensure user data runs completely

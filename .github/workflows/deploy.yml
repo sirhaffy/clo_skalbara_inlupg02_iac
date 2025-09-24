@@ -315,7 +315,7 @@ jobs:
 
         docker_swarm:
           vars:
-            ansible_ssh_common_args: '-o ProxyJump=ec2-user@$BASTION_PUBL_IP'
+            ansible_ssh_common_args: '-o ProxyJump=ec2-user@$BASTION_PUBL_IP -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
           children:
             swarm_managers:
               hosts:
