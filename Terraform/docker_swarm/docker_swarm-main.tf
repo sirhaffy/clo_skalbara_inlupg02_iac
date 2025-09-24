@@ -18,6 +18,13 @@ resource "aws_instance" "swarm_manager" {
   # Ensure user data runs completely
   user_data_replace_on_change = true
 
+  # Force recreation when user_data changes
+  lifecycle {
+    replace_triggered_by = [
+      terraform_data.swarm_user_data_trigger
+    ]
+  }
+
   tags = {
     Name        = "${var.project_name}-swarm-manager-${count.index + 1}"
     Environment = var.environment
@@ -43,6 +50,13 @@ resource "aws_instance" "swarm_worker" {
 
   # Ensure user data runs completely
   user_data_replace_on_change = true
+
+  # Force recreation when user_data changes
+  lifecycle {
+    replace_triggered_by = [
+      terraform_data.swarm_user_data_trigger
+    ]
+  }
 
   tags = {
     Name        = "${var.project_name}-swarm-worker-${count.index + 1}"
@@ -127,4 +141,9 @@ resource "aws_lb_target_group_attachment" "web_tg_attachment" {
   target_group_arn = aws_lb_target_group.web_tg.arn
   target_id        = aws_instance.swarm_worker[count.index].id
   port             = 80
+}
+
+# Trigger for forcing instance recreation when user_data changes
+resource "terraform_data" "swarm_user_data_trigger" {
+  input = filebase64("${path.module}/user-data/swarm-setup.sh")
 }

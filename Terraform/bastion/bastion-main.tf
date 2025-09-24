@@ -27,6 +27,13 @@ resource "aws_instance" "bastion" {
     # Add variables to pass to the script if needed..
   }))
 
+  # Force recreation when user_data changes
+  lifecycle {
+    replace_triggered_by = [
+      terraform_data.swarm_user_data_trigger
+    ]
+  }
+
   # Ensure user data runs completely
   user_data_replace_on_change = true
 

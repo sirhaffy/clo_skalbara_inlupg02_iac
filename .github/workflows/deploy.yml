@@ -434,6 +434,37 @@ jobs:
         done
 
         echo "Testing Ansible connectivity to Docker Swarm nodes..."
+
+        # First, let's check swarm nodes' status via AWS CLI
+        echo "=== Swarm Nodes Diagnostics ==="
+        MANAGER_IPS=$(cd ../Terraform && terraform output -json swarm_manager_ips | jq -r '.[]')
+        WORKER_IPS=$(cd ../Terraform && terraform output -json swarm_worker_ips | jq -r '.[]')
+
+        echo "Checking swarm manager nodes..."
+        for ip in $MANAGER_IPS; do
+            echo "Checking manager node: $ip"
+            INSTANCE_ID=$(aws ec2 describe-instances --filters "Name=private-ip-address,Values=$ip" --query 'Reservations[*].Instances[*].InstanceId' --output text)
+            if [ -n "$INSTANCE_ID" ]; then
+                echo "Manager instance: $INSTANCE_ID"
+                aws ec2 describe-instances --instance-ids $INSTANCE_ID --query 'Reservations[*].Instances[*].[InstanceId,State.Name,PrivateIpAddress,LaunchTime]' --output table
+                echo "Console output (last 10 lines):"
+                aws ec2 get-console-output --instance-id $INSTANCE_ID --output text 2>/dev/null | tail -10 || echo "No console output available"
+            fi
+        done
+
+        echo "Checking swarm worker nodes..."
+        for ip in $WORKER_IPS; do
+            echo "Checking worker node: $ip"
+            INSTANCE_ID=$(aws ec2 describe-instances --filters "Name=private-ip-address,Values=$ip" --query 'Reservations[*].Instances[*].InstanceId' --output text)
+            if [ -n "$INSTANCE_ID" ]; then
+                echo "Worker instance: $INSTANCE_ID"
+                aws ec2 describe-instances --instance-ids $INSTANCE_ID --query 'Reservations[*].Instances[*].[InstanceId,State.Name,PrivateIpAddress,LaunchTime]' --output table
+                echo "Console output (last 10 lines):"
+                aws ec2 get-console-output --instance-id $INSTANCE_ID --output text 2>/dev/null | tail -10 || echo "No console output available"
+            fi
+        done
+        echo "=== End Swarm Nodes Diagnostics ==="
+
         for node_group in swarm_managers swarm_workers; do
             echo "Testing $node_group..."
             if ansible $node_group -i inventory/dynamic_hosts.yml -m ping --timeout=30 -v; then
