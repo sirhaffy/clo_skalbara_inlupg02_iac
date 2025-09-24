@@ -350,27 +350,38 @@ jobs:
         BASTION_IP=$(cd ../Terraform && terraform output -raw bastion_public_ip)
         echo "Testing SSH to bastion: $BASTION_IP"
 
+        # Check if SSH key exists and has correct permissions
+        if [ ! -f ~/.ssh/clo_ec2_001 ]; then
+            echo "::error::SSH key not found!"
+            exit 1
+        fi
+        chmod 600 ~/.ssh/clo_ec2_001
+
         # Simple SSH test with retry
-        MAX_ATTEMPTS=10
-        WAIT_TIME=30
+        MAX_ATTEMPTS=5
+        WAIT_TIME=60
 
         for attempt in $(seq 1 $MAX_ATTEMPTS); do
             echo "SSH attempt $attempt/$MAX_ATTEMPTS..."
 
-            if ssh -i ~/.ssh/clo_ec2_001 -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=10 ec2-user@$BASTION_IP "echo 'SSH OK'; hostname" 2>/dev/null; then
-                echo "✓ SSH connection to bastion successful!"
-                break
-            else
-                echo "SSH failed, attempt $attempt/$MAX_ATTEMPTS"
-                if [ $attempt -eq $MAX_ATTEMPTS ]; then
-                    echo "::error::Failed to connect to bastion after $MAX_ATTEMPTS attempts"
+            # Test with more verbose output on last attempt
+            if [ $attempt -eq $MAX_ATTEMPTS ]; then
+                echo "Final attempt with detailed error output:"
+                ssh -i ~/.ssh/clo_ec2_001 -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 ec2-user@$BASTION_IP "echo 'SSH OK'; hostname" || {
+                    echo "::error::SSH connection failed. Checking if this is the 'Too many authentication failures' issue..."
+                    echo "Try connecting locally with: ssh -o IdentitiesOnly=yes -i ~/.ssh/clo_ec2_001.pem ec2-user@$BASTION_IP"
                     exit 1
+                }
+            else
+                if ssh -i ~/.ssh/clo_ec2_001 -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 ec2-user@$BASTION_IP "echo 'SSH OK'; hostname" 2>/dev/null; then
+                    echo "✓ SSH connection to bastion successful!"
+                    break
+                else
+                    echo "SSH failed, waiting ${WAIT_TIME} seconds..."
+                    sleep $WAIT_TIME
                 fi
-                sleep $WAIT_TIME
             fi
-        done
-
-        echo "Testing Ansible connectivity to Docker Swarm nodes..."
+        done        echo "Testing Ansible connectivity to Docker Swarm nodes..."
         for node_group in swarm_managers swarm_workers; do
             echo "Testing $node_group..."
             if ansible $node_group -i inventory/dynamic_hosts.yml -m ping --timeout=30 -v; then

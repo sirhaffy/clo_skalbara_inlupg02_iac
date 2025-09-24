@@ -47,7 +47,6 @@ resource "aws_instance" "bastion" {
 # Elastic IP for bastion
 resource "aws_eip" "bastion" {
   domain = "vpc"
-  instance = aws_instance.bastion.id
 
   tags = {
     Name        = "${var.project_name}-${var.environment}-bastion-eip"
