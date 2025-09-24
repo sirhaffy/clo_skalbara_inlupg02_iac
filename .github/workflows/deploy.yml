@@ -350,6 +350,35 @@ jobs:
         BASTION_IP=$(cd ../Terraform && terraform output -raw bastion_public_ip)
         echo "Testing SSH to bastion: $BASTION_IP"
 
+        # AWS CLI diagnostics first
+        echo "=== AWS CLI Diagnostics ==="
+
+        # Check if instance exists and its state
+        echo "1. Checking instance state..."
+        INSTANCE_ID=$(aws ec2 describe-instances --filters "Name=ip-address,Values=$BASTION_IP" --query 'Reservations[*].Instances[*].InstanceId' --output text)
+        if [ -n "$INSTANCE_ID" ]; then
+            echo "Found bastion instance: $INSTANCE_ID"
+            aws ec2 describe-instances --instance-ids $INSTANCE_ID --query 'Reservations[*].Instances[*].[InstanceId,State.Name,PublicIpAddress,PrivateIpAddress,KeyName]' --output table
+        else
+            echo "::error::No instance found with IP $BASTION_IP"
+            exit 1
+        fi
+
+        # Check security groups
+        echo "2. Checking security groups..."
+        aws ec2 describe-instances --instance-ids $INSTANCE_ID --query 'Reservations[*].Instances[*].SecurityGroups[*].[GroupId,GroupName]' --output table
+
+        # Get security group details
+        SG_ID=$(aws ec2 describe-instances --instance-ids $INSTANCE_ID --query 'Reservations[*].Instances[*].SecurityGroups[0].GroupId' --output text)
+        echo "Security group rules for $SG_ID:"
+        aws ec2 describe-security-groups --group-ids $SG_ID --query 'SecurityGroups[*].IpPermissions[*].[IpProtocol,FromPort,ToPort,IpRanges[*].CidrIp]' --output table
+
+        # Check console output to see if user_data ran
+        echo "3. Checking console output for user_data execution..."
+        aws ec2 get-console-output --instance-id $INSTANCE_ID --output text | tail -20
+
+        echo "=== End AWS CLI Diagnostics ==="
+
         # Check if SSH key exists and has correct permissions
         if [ ! -f ~/.ssh/clo_ec2_001 ]; then
             echo "::error::SSH key not found!"

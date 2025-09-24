@@ -1,16 +1,24 @@
 #!/bin/bash
 
+# Log all commands for debugging
+exec > >(tee /var/log/user-data.log) 2>&1
+echo "$(date): Starting user-data script execution"
+
 # Update the system
+echo "$(date): Updating system packages"
 dnf update -y
 
 # Install necessary packages
+echo "$(date): Installing SSH packages"
 dnf install -y openssh-server openssh-clients
 
 # Ensure SSH service is enabled and started
+echo "$(date): Enabling and starting SSH service"
 systemctl enable sshd
 systemctl start sshd
 
 # Configure SSH for security
+echo "$(date): Configuring SSH security settings"
 # Backup original config
 cp /etc/ssh/sshd_config /etc/ssh/sshd_config.backup
 
@@ -40,6 +48,7 @@ AuthorizedKeysFile .ssh/authorized_keys
 EOF
 
 # Configure firewall to allow SSH
+echo "$(date): Configuring firewall for SSH"
 if command -v ufw &> /dev/null; then
     ufw allow 22/tcp
     ufw --force enable
@@ -49,40 +58,17 @@ elif command -v firewall-cmd &> /dev/null; then
 fi
 
 # Restart SSH service to apply configuration
+echo "$(date): Restarting SSH service to apply configuration"
 systemctl restart sshd
 
-# Enable fail2ban for additional security (optional)
-# dnf install -y epel-release
-# dnf install -y fail2ban
-
-# Configure fail2ban for SSH
-# cat > /etc/fail2ban/jail.local << 'EOF'
-# [DEFAULT]
-# bantime = 3600
-# findtime = 600
-# maxretry = 3
-
-# [sshd]
-# enabled = true
-# port = ssh
-# filter = sshd
-# logpath = /var/log/secure
-# maxretry = 3
-# EOF
-
-# systemctl enable fail2ban
-# systemctl start fail2ban
-
-# Install CloudWatch agent (optional, for monitoring)
-# dnf install -y amazon-cloudwatch-agent
-
-# Log the completion
-# echo "Bastion host setup completed at $(date)" >> /var/log/bastion-setup.log
-
 # Test SSH service
+echo "$(date): Final SSH service status check"
+systemctl status sshd
 if systemctl is-active --quiet sshd; then
-    echo "$(date): SSH service is running" >> /var/log/ec2-ssh-setup.log
+    echo "$(date): SSH service is running successfully"
 else
-    echo "$(date): ERROR - SSH service failed to start" >> /var/log/ec2-ssh-setup.log
-    systemctl status sshd >> /var/log/ec2-ssh-setup.log
+    echo "$(date): ERROR - SSH service failed to start"
 fi
+
+echo "$(date): User-data script completed"
+
