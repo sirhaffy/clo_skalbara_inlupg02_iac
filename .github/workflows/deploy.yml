@@ -247,6 +247,7 @@ jobs:
     - name: Install AWS EC2 plugin for Ansible
       run: |
         pip install boto3 botocore
+        ansible-galaxy collection install amazon.aws
 
     - name: Deploy with Ansible (using AWS EC2 plugin - no inventory file!)
       working-directory: ./Ansible

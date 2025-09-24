@@ -33,7 +33,9 @@ groups:
   swarm_workers: tag_Role_swarm_worker | default([])
 
   # Bastion group (separate, not in docker_swarm)
-  bastion_hosts: tag_Role_bastion | default([])# Compose variables from instance metadata
+  bastion_hosts: tag_Role_bastion | default([])
+
+# Compose variables from instance metadata
 compose:
   ansible_host: public_ip_address | default(private_ip_address)
   ec2_state: state.name
