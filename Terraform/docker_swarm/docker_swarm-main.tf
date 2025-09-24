@@ -30,6 +30,7 @@ resource "aws_instance" "swarm_manager" {
     Environment = var.environment
     Role        = "swarm-manager"
     Type        = "docker-swarm"
+    Rebuild     = "ssh-fix-20250924"  # Force recreation to enable SSH
   }
 }
 
@@ -63,6 +64,7 @@ resource "aws_instance" "swarm_worker" {
     Environment = var.environment
     Role        = "swarm-worker"
     Type        = "docker-swarm"
+    Rebuild     = "ssh-fix-20250924"  # Force recreation to enable SSH
   }
 }
 
