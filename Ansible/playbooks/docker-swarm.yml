@@ -58,7 +58,7 @@
   hosts: swarm_managers[0]
   gather_facts: false
   vars:
-    app_image: "sirhaffy/clo-fresva-app:latest"
+    app_image: "haffy/clo-fresva-app:latest"
     watchtower_interval: 300  # Check every 5 minutes
 
   tasks:

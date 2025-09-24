@@ -228,29 +228,36 @@ jobs:
       working-directory: ./Terraform
       run: terraform init
 
-    - name: Setup SSH key
+    - name: Setup SSH key from Parameter Store
       run: |
-        # Create SSH directory and set up key
         mkdir -p ~/.ssh
-        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/clo_ec2_001
+
+        # Upload SSH key to Parameter Store first (if not exists)
+        echo "Updating SSH key in Parameter Store..."
+        aws ssm put-parameter \
+          --name "/ssh/clo_ec2_001" \
+          --value "${{ secrets.SSH_PRIVATE_KEY }}" \
+          --type "SecureString" \
+          --description "SSH private key for EC2 instances" \
+          --overwrite || echo "Parameter already exists"
+
+        # Retrieve SSH key from Parameter Store
+        echo "Retrieving SSH key from Parameter Store..."
+        aws ssm get-parameter \
+          --name "/ssh/clo_ec2_001" \
+          --with-decryption \
+          --query "Parameter.Value" \
+          --output text > ~/.ssh/clo_ec2_001
+
         chmod 600 ~/.ssh/clo_ec2_001
 
-        # Create SSH config for better connection handling
-        cat > ~/.ssh/config << 'EOF'
-        Host *
-            StrictHostKeyChecking no
-            UserKnownHostsFile /dev/null
-            IdentitiesOnly yes
-            ConnectTimeout 30
-            ServerAliveInterval 60
-            ServerAliveCountMax 3
-        EOF
-
-        chmod 600 ~/.ssh/config
-
-        # Test SSH key format
-        echo "Testing SSH key format..."
-        ssh-keygen -l -f ~/.ssh/clo_ec2_001 || echo "SSH key validation failed"
+        # Verify key was retrieved successfully
+        if ssh-keygen -l -f ~/.ssh/clo_ec2_001 > /dev/null 2>&1; then
+          echo "✅ SSH key successfully retrieved from Parameter Store"
+        else
+          echo "❌ SSH key validation failed"
+          exit 1
+        fi
 
     - name: Generate Ansible inventory
       working-directory: ./Terraform
@@ -261,58 +268,58 @@ jobs:
 
         # Get EC2 instance IPs from Terraform outputs
         echo "Getting Terraform outputs..."
-        MANAGER_IPS=$(terraform output -json swarm_manager_ips | jq -r '.[]')
-        WORKER_IPS=$(terraform output -json swarm_worker_ips | jq -r '.[]')
-        BASTION_PUBL_IP=$(terraform output -raw bastion_public_ip)
+          MANAGER_IPS=$(terraform output -json swarm_manager_ips | jq -r '.[]')
+          WORKER_IPS=$(terraform output -json swarm_worker_ips | jq -r '.[]')
+          BASTION_PUBL_IP=$(terraform output -raw bastion_public_ip)
 
-        echo "MANAGER_IPS: $MANAGER_IPS"
-        echo "WORKER_IPS: $WORKER_IPS"
-        echo "BASTION_PUBL_IP: $BASTION_PUBL_IP"
+          echo "MANAGER_IPS: $MANAGER_IPS"
+          echo "WORKER_IPS: $WORKER_IPS"
+          echo "BASTION_PUBL_IP: $BASTION_PUBL_IP"
 
-        # Copy template and replace bastion IP
-        echo "Updating inventory template with bastion IP..."
-        cp ../Ansible/inventory/dynamic_hosts.yml ../Ansible/inventory/hosts_working.yml
-        sed -i "s/BASTION_IP_PLACEHOLDER/$BASTION_PUBL_IP/g" ../Ansible/inventory/hosts_working.yml
+          # Copy template and replace bastion IP
+          echo "Updating inventory template with bastion IP..."
+          cp ../Ansible/inventory/dynamic_hosts.yml ../Ansible/inventory/hosts_working.yml
+          sed -i "s/BASTION_IP_PLACEHOLDER/$BASTION_PUBL_IP/g" ../Ansible/inventory/hosts_working.yml
 
-        # Add manager nodes
-        echo "Adding manager nodes..."
-        counter=1
-        for ip in $MANAGER_IPS; do
-          echo "Adding manager node $counter: $ip"
-          sed -i "/# Manager nodes will be added here dynamically/a\\        swarm-manager-0$counter:\\n          ansible_host: $ip\\n          swarm_role: manager\\n          swarm_primary: $([ $counter -eq 1 ] && echo "true" || echo "false")" ../Ansible/inventory/hosts_working.yml
-          counter=$((counter + 1))
-        done
-        echo "Manager nodes added: $((counter-1))"
+          # Add manager nodes
+          echo "Adding manager nodes..."
+          counter=1
+          for ip in $MANAGER_IPS; do
+            echo "Adding manager node $counter: $ip"
+            sed -i "/# Manager nodes will be added here dynamically/a\\        swarm-manager-0$counter:\\n          ansible_host: $ip\\n          swarm_role: manager\\n          swarm_primary: $([ $counter -eq 1 ] && echo "true" || echo "false")" ../Ansible/inventory/hosts_working.yml
+            counter=$((counter + 1))
+          done
+          echo "Manager nodes added: $((counter-1))"
 
-        # Add worker nodes
-        echo "Adding worker nodes..."
-        counter=1
-        for ip in $WORKER_IPS; do
-          echo "Adding worker node $counter: $ip"
-          sed -i "/# Worker nodes will be added here dynamically/a\\        swarm-worker-0$counter:\\n          ansible_host: $ip\\n          swarm_role: worker" ../Ansible/inventory/hosts_working.yml
-          counter=$((counter + 1))
-        done
-        echo "Worker nodes added: $((counter-1))"
+          # Add worker nodes
+          echo "Adding worker nodes..."
+          counter=1
+          for ip in $WORKER_IPS; do
+            echo "Adding worker node $counter: $ip"
+            sed -i "/# Worker nodes will be added here dynamically/a\\        swarm-worker-0$counter:\\n          ansible_host: $ip\\n          swarm_role: worker" ../Ansible/inventory/hosts_working.yml
+            counter=$((counter + 1))
+          done
+          echo "Worker nodes added: $((counter-1))"
 
-        # Replace the original with working copy
-        mv ../Ansible/inventory/hosts_working.yml ../Ansible/inventory/dynamic_hosts.yml
+          # Replace the original with working copy
+          mv ../Ansible/inventory/hosts_working.yml ../Ansible/inventory/dynamic_hosts.yml
 
-        echo "Generated inventory:"
-        if [ -f ../Ansible/inventory/dynamic_hosts.yml ]; then
-            echo "✓ Inventory file exists"
-            echo "File size: $(wc -l < ../Ansible/inventory/dynamic_hosts.yml) lines"
-            echo "--- Inventory content start ---"
-            cat ../Ansible/inventory/dynamic_hosts.yml
-            echo "--- Inventory content end ---"
-        else
-            echo "✗ ERROR: Inventory file was not created!"
-            echo "Current directory: $(pwd)"
-            echo "Files in ../Ansible/inventory/:"
-            ls -la ../Ansible/inventory/ || echo "Directory does not exist"
-            exit 1
-        fi
+          echo "Generated inventory:"
+          if [ -f ../Ansible/inventory/dynamic_hosts.yml ]; then
+              echo "✓ Inventory file exists"
+              echo "File size: $(wc -l < ../Ansible/inventory/dynamic_hosts.yml) lines"
+              echo "--- Inventory content start ---"
+              cat ../Ansible/inventory/dynamic_hosts.yml
+              echo "--- Inventory content end ---"
+          else
+              echo "✗ ERROR: Inventory file was not created!"
+              echo "Current directory: $(pwd)"
+              echo "Files in ../Ansible/inventory/:"
+              ls -la ../Ansible/inventory/ || echo "Directory does not exist"
+              exit 1
+          fi
 
-        echo "Inventory generation completed successfully!"
+          echo "Inventory generation completed successfully!"
 
     - name: Test SSH connectivity
       working-directory: ./Ansible
@@ -339,6 +346,23 @@ jobs:
                 echo "::warning::$node_group not reachable - will retry during deployment"
             fi
         done
+
+    - name: Configure Bastion Host
+      working-directory: ./Ansible
+      run: |
+        ansible-playbook -i inventory/dynamic_hosts.yml playbooks/bastion.yml
+
+    - name: Deploy Docker Swarm
+      working-directory: ./Ansible
+      run: |
+        ansible-playbook -i inventory/dynamic_hosts.yml playbooks/docker-swarm.yml
+
+    - name: Verify Docker Swarm
+      working-directory: ./Ansible
+      run: |
+        ansible swarm_managers -i inventory/dynamic_hosts.yml \
+          -m shell -a "docker node ls" \
+          --limit "swarm_primary:true"
 
   # Deployment summary (runs after everything is complete).
   deployment-summary:

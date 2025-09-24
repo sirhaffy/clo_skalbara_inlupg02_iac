@@ -10,9 +10,11 @@ bastion_hosts:
     bastion-01:
       ansible_host: BASTION_IP_PLACEHOLDER
 
+# Direct connection mode - no bastion proxy for CI/CD
 docker_swarm:
   vars:
-    ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes -o ConnectTimeout=30 -o ProxyCommand="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh/clo_ec2_001 -W %h:%p ec2-user@BASTION_IP_PLACEHOLDER"'
+    # GitHub Actions har direkt access till private subnets via NAT Gateway
+    ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes -o ConnectTimeout=30'
   children:
     swarm_managers:
       hosts:

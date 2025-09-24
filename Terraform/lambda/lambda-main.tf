@@ -14,6 +14,24 @@ resource "aws_ecr_repository" "api_lambda" {
   }
 }
 
+# Parameter Store for SSH Private Key (secure)
+resource "aws_ssm_parameter" "ssh_private_key" {
+  name        = "/ssh/clo_ec2_001"
+  description = "SSH private key for EC2 instances - managed by Terraform"
+  type        = "SecureString"
+  value       = "placeholder-will-be-updated-by-github-actions"
+
+  tags = {
+    Name        = "${var.project_name}-ssh-key"
+    Environment = var.environment
+    ManagedBy   = "terraform"
+  }
+
+  lifecycle {
+    ignore_changes = [value]  # Allow GitHub Actions to update the value
+  }
+}
+
 # ECR Lifecycle Policy
 resource "aws_ecr_lifecycle_policy" "api_lambda" {
   repository = aws_ecr_repository.api_lambda.name
@@ -280,6 +298,18 @@ resource "aws_iam_user_policy" "github_actions_lambda_api" {
           "lambda:GetFunctionConfiguration"
         ]
         Resource = aws_lambda_function.api_lambda.arn
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ssm:GetParameter",
+          "ssm:PutParameter",
+          "ssm:GetParameters"
+        ]
+        Resource = [
+          "arn:aws:ssm:*:*:parameter/ssh/*",
+          aws_ssm_parameter.ssh_private_key.arn
+        ]
       }
     ]
   })
