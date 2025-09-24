@@ -367,11 +367,14 @@ jobs:
             # Test with more verbose output on last attempt
             if [ $attempt -eq $MAX_ATTEMPTS ]; then
                 echo "Final attempt with detailed error output:"
-                ssh -i ~/.ssh/clo_ec2_001 -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 ec2-user@$BASTION_IP "echo 'SSH OK'; hostname" || {
-                    echo "::error::SSH connection failed. Checking if this is the 'Too many authentication failures' issue..."
+                if ssh -i ~/.ssh/clo_ec2_001 -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 ec2-user@$BASTION_IP "echo 'SSH OK'; hostname"; then
+                    echo "✓ SSH connection to bastion successful!"
+                    break
+                else
+                    echo "::error::SSH connection failed after $MAX_ATTEMPTS attempts"
                     echo "Try connecting locally with: ssh -o IdentitiesOnly=yes -i ~/.ssh/clo_ec2_001.pem ec2-user@$BASTION_IP"
                     exit 1
-                }
+                fi
             else
                 if ssh -i ~/.ssh/clo_ec2_001 -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 ec2-user@$BASTION_IP "echo 'SSH OK'; hostname" 2>/dev/null; then
                     echo "✓ SSH connection to bastion successful!"
@@ -381,7 +384,9 @@ jobs:
                     sleep $WAIT_TIME
                 fi
             fi
-        done        echo "Testing Ansible connectivity to Docker Swarm nodes..."
+        done
+
+        echo "Testing Ansible connectivity to Docker Swarm nodes..."
         for node_group in swarm_managers swarm_workers; do
             echo "Testing $node_group..."
             if ansible $node_group -i inventory/dynamic_hosts.yml -m ping --timeout=30 -v; then
