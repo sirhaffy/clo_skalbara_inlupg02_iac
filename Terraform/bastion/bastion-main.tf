@@ -22,8 +22,12 @@ resource "aws_instance" "bastion" {
   subnet_id                  = var.public_subnet_id
   associate_public_ip_address = true
 
-  # No user_data - let Ansible handle all configuration
-  # SSH key is automatically deployed by AWS to ~/.ssh/authorized_keys
+  # Minimal user_data - just ensure SSH works for Ansible to configure.
+  user_data = <<-EOF
+    #!/bin/bash
+    systemctl enable sshd
+    systemctl start sshd
+  EOF
 
   tags = {
     Name        = "${var.project_name}-${var.environment}-bastion"
