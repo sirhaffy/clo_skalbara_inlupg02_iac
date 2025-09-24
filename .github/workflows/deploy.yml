@@ -243,6 +243,7 @@ jobs:
         echo "    UserKnownHostsFile /dev/null" >> ~/.ssh/config
         chmod 600 ~/.ssh/config
 
+    # AWS SDK libraries (boto3 and botocore) for Ansible to interact with AWS resources.
     - name: Install AWS EC2 plugin for Ansible
       run: |
         pip install boto3 botocore
@@ -258,6 +259,37 @@ jobs:
       run: |
         # Use AWS EC2 plugin to find managers
         ansible tag_Role_swarm_manager -i aws_ec2.yml -m shell -a "docker node ls" --limit 1
+
+    - name: Deployment Summary
+      working-directory: ./Terraform
+      run: |
+        echo "=================================================="
+        echo "        DEPLOYMENT COMPLETED SUCCESSFULLY!        "
+        echo "=================================================="
+        echo ""
+
+        # Get info directly from Terraform when we need it
+        ALB_DNS=$(terraform output -raw alb_dns_name 2>/dev/null || echo "Not available")
+        BASTION_IP=$(terraform output -raw bastion_public_ip 2>/dev/null || echo "Not available")
+        MANAGER_IPS=$(terraform output -json swarm_manager_ips 2>/dev/null | jq -r '.[]' | head -1 || echo "Not available")
+
+        echo "   🌐 Frontend: http://$ALB_DNS"
+        echo "   🖥️  Bastion Host: $BASTION_IP"
+        echo "   📡 SSH to Bastion:"
+        echo "      ssh -i ~/.ssh/clo_ec2_001 ec2-user@$BASTION_IP"
+        echo ""
+        echo "   🐳 SSH to Docker Manager (via bastion):"
+        if [ "$MANAGER_IPS" != "Not available" ]; then
+          echo "      ssh -i ~/.ssh/clo_ec2_001 -o ProxyJump=ec2-user@$BASTION_IP ec2-user@$MANAGER_IPS"
+        else
+          echo "      Manager IP not available"
+        fi
+        echo ""
+        echo "   📋 Or use SSH config (already setup):"
+        echo "      ssh bastion"
+        echo "      ssh $MANAGER_IPS  # (will auto-proxy through bastion)"
+        echo ""
+        echo "=================================================="
 
   # Destroy infrastructure
   destroy:

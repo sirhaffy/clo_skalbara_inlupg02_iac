@@ -1,0 +1,44 @@
+# AWS EC2 dynamic inventory configuration
+plugin: amazon.aws.aws_ec2
+regions:
+  - eu-north-1
+
+# Filter instances by specific tags or states
+filters:
+  instance-state-name: running
+
+# Define group names based on tags
+keyed_groups:
+  # Create groups based on Role tag: tag_Role_swarm_manager, tag_Role_swarm_worker, tag_Role_bastion
+  - key: tags.Role
+    prefix: tag_Role
+    separator: "_"
+
+  # Create groups based on instance type
+  - key: instance_type
+    prefix: type
+
+  # Create groups based on availability zone
+  - key: placement.availability_zone
+    prefix: az
+
+# Compose variables from instance metadata
+compose:
+  ansible_host: public_ip_address | default(private_ip_address)
+  ec2_state: state.name
+  ec2_instance_type: instance_type
+  ec2_placement_az: placement.availability_zone
+  ec2_vpc_id: vpc_id
+  ec2_subnet_id: subnet_id
+
+# Use private IP for instances without public IP (swarm nodes)
+hostnames:
+  - private-ip-address
+  - dns-name
+  - name
+
+# Cache settings for better performance
+cache: true
+cache_plugin: jsonfile
+cache_timeout: 300
+cache_connection: ~/.ansible/tmp/aws_inventory_cache
