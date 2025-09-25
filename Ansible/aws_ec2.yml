@@ -26,12 +26,12 @@ keyed_groups:
 
 # Create standard group names expected by playbooks
 groups:
-  # Docker Swarm groups (no bastion included!)
-  docker_swarm: tag_Role_swarm_manager + tag_Role_swarm_worker
-  swarm_managers: tag_Role_swarm_manager
-  swarm_workers: tag_Role_swarm_worker
+  # Docker Swarm groups - hosts matching Role tags
+  docker_swarm: tags.Role in ['swarm-manager', 'swarm-worker']
+  swarm_managers: tags.Role == 'swarm-manager'
+  swarm_workers: tags.Role == 'swarm-worker'
   # Bastion group (separate, not in docker_swarm)
-  bastion_hosts: tag_Role_bastion
+  bastion_hosts: tags.Role == 'bastion'
 
 # Compose variables from instance metadata
 compose:
