@@ -273,13 +273,8 @@ jobs:
     - name: Deploy with Ansible (using AWS EC2 plugin - no inventory file!)
       working-directory: ./Ansible
       run: |
-        # Get bastion IP for proxy configuration
-        BASTION_IP=$(cd ../Terraform && terraform output -raw bastion_public_ip)
-        echo "Using bastion host: $BASTION_IP"
-
-        # Configure Ansible to use bastion proxy for private instances
-        export ANSIBLE_SSH_ARGS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-        export ANSIBLE_SSH_COMMON_ARGS="-o ProxyJump=ec2-user@$BASTION_IP"
+        # Ansible uses the SSH config already created above - no extra SSH args needed!
+        echo "Using existing SSH config with bastion proxy for all 10.0.*.* hosts"
 
         # Ansible auto-discovers EC2 instances with tags
         ansible-playbook playbooks/docker-swarm.yml -i aws_ec2.yml -v
