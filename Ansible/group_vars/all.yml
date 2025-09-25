@@ -11,6 +11,22 @@ docker_service_enabled: true
 swarm_network_interface: eth0
 swarm_advertise_addr: "{{ ansible_default_ipv4.address }}"
 
+# Application configuration
+app_name: "clo-fresva-app"
+app_image: "haffy/clo-fresva-app:latest"
+app_replicas: 3
+app_port: 80
+app_network: "app-network"
+
+# Watchtower configuration
+watchtower_name: "watchtower"
+watchtower_interval: 300  # Check every 5 minutes
+
+# Health check configuration
+health_endpoint: "/api/health"
+health_retries: 12
+health_delay: 10
+
 # Firewall ports for Docker Swarm
 swarm_ports:
   - 2377/tcp  # Cluster management
