@@ -59,16 +59,16 @@
   gather_facts: false
   vars:
     # Fallback values in case variables from all.yml are not loaded
-    app_name: "{{ app_name | default('clo-fresva-app') }}"
-    app_image: "{{ app_image | default('haffy/clo-fresva-app:latest') }}"
-    app_replicas: "{{ app_replicas | default(3) }}"
-    app_port: "{{ app_port | default(80) }}"
-    app_network: "{{ app_network | default('app-network') }}"
-    watchtower_name: "{{ watchtower_name | default('watchtower') }}"
-    watchtower_interval: "{{ watchtower_interval | default(300) }}"
-    health_endpoint: "{{ health_endpoint | default('/api/health') }}"
-    health_retries: "{{ health_retries | default(12) }}"
-    health_delay: "{{ health_delay | default(10) }}"
+    _app_name: "{{ app_name | default('clo-fresva-app') }}"
+    _app_image: "{{ app_image | default('haffy/clo-fresva-app:latest') }}"
+    _app_replicas: "{{ app_replicas | default(3) }}"
+    _app_port: "{{ app_port | default(80) }}"
+    _app_network: "{{ app_network | default('app-network') }}"
+    _watchtower_name: "{{ watchtower_name | default('watchtower') }}"
+    _watchtower_interval: "{{ watchtower_interval | default(300) }}"
+    _health_endpoint: "{{ health_endpoint | default('/api/health') }}"
+    _health_retries: "{{ health_retries | default(12) }}"
+    _health_delay: "{{ health_delay | default(10) }}"
 
   tasks:
     - name: Create app network
@@ -76,7 +76,7 @@
         docker network create
         --driver overlay
         --attachable
-        {{ app_network }}
+        {{ _app_network }}
       register: network_result
       failed_when:
         - network_result.rc != 0
@@ -86,10 +86,10 @@
     - name: Deploy Watchtower service
       command: >
         docker service create
-        --name {{ watchtower_name }}
+        --name {{ _watchtower_name }}
         --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock
         --constraint 'node.role==manager'
-        --env WATCHTOWER_POLL_INTERVAL={{ watchtower_interval }}
+        --env WATCHTOWER_POLL_INTERVAL={{ _watchtower_interval }}
         --env WATCHTOWER_CLEANUP=true
         --env WATCHTOWER_INCLUDE_RESTARTING=true
         --env WATCHTOWER_ROLLING_RESTART=true
@@ -107,30 +107,30 @@
       changed_when: watchtower_result.rc == 0
 
     - name: Check if app image exists
-      command: docker manifest inspect {{ app_image }}
+      command: docker manifest inspect {{ _app_image }}
       register: image_check
       failed_when: false
       changed_when: false
 
     - name: Check if app service already exists
-      command: docker service ls --filter name={{ app_name }} --format "table {{.Name}}"
+      command: docker service ls --filter name={{ _app_name }} --format "table {{.Name}}"
       register: existing_service
       failed_when: false
       changed_when: false
 
     - name: Remove existing app service if it exists
-      command: docker service rm {{ app_name }}
-      when: "'{{ app_name }}' in existing_service.stdout"
+      command: docker service rm {{ _app_name }}
+      when: "'{{ _app_name }}' in existing_service.stdout"
       failed_when: false
       changed_when: false
 
     - name: Force deploy application service (always try to deploy)
       command: >
         docker service create
-        --name {{ app_name }}
-        --replicas {{ app_replicas }}
-        --network {{ app_network }}
-        --publish {{ app_port }}:80
+        --name {{ _app_name }}
+        --replicas {{ _app_replicas }}
+        --network {{ _app_network }}
+        --publish {{ _app_port }}:80
         --env NODE_ENV=production
         --env LOAD_BALANCED=true
         --label com.centurylinklabs.watchtower.enable=true
@@ -138,12 +138,12 @@
         --rollback-config parallelism=1,delay=10s
         --restart-condition on-failure
         --restart-max-attempts 3
-        --health-cmd "curl -f http://localhost{{ health_endpoint }} || exit 1"
+        --health-cmd "curl -f http://localhost{{ _health_endpoint }} || exit 1"
         --health-interval 30s
         --health-retries 3
         --health-timeout 10s
         --health-start-period 40s
-        {{ app_image }}
+        {{ _app_image }}
       register: app_result
       changed_when: app_result.rc == 0
 
@@ -165,7 +165,7 @@
         msg: "{{ services_debug.stdout_lines }}"
 
     - name: Check app service status
-      command: docker service ps {{ app_name }} --no-trunc
+      command: docker service ps {{ _app_name }} --no-trunc
       register: app_service_status
       failed_when: false
       changed_when: false
@@ -179,7 +179,7 @@
       debug:
         msg: |
           {% if image_check.rc != 0 %}
-            Image {{ app_image }} not found
+            Image {{ _app_image }} not found
             Deploy your frontend app first to make this image available
             Expected behavior: ALB will show 502 until frontend is deployed
           {% elif app_result.rc == 0 %}
@@ -202,13 +202,13 @@
 
     - name: Wait for application to be healthy
       uri:
-        url: "http://{{ ansible_default_ipv4.address }}{{ health_endpoint }}"
+        url: "http://{{ ansible_default_ipv4.address }}{{ _health_endpoint }}"
         method: GET
         status_code: 200
       register: health_check
       until: health_check.status == 200
-      retries: "{{ health_retries }}"
-      delay: "{{ health_delay }}"
+      retries: "{{ _health_retries }}"
+      delay: "{{ _health_delay }}"
       ignore_errors: true
 
     - name: Display deployment status
@@ -219,7 +219,7 @@
           - App Service: {{ 'Created' if app_result.changed else 'Already exists' }}
           - Health Check: {{ 'Healthy' if health_check.status == 200 else 'Failed' }}
           - Application URL: http://{{ ansible_default_ipv4.address }}
-          - Watchtower will check for updates every {{ watchtower_interval }}s
+          - Watchtower will check for updates every {{ _watchtower_interval }}s
 
     - name: Show service status
       command: docker service ls
