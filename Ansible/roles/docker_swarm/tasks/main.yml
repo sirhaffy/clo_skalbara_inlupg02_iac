@@ -2,7 +2,7 @@
 # Docker Swarm setup using CLI
 
 - name: Check if Swarm is already initialized
-  shell: docker info --format '{{.Swarm.LocalNodeState}}'
+  shell: docker info --format '{{ "{{" }}.Swarm.LocalNodeState{{ "}}" }}'
   register: swarm_state
   ignore_errors: true
   changed_when: false
@@ -81,7 +81,7 @@
     - node_status.stdout_lines is defined
 
 - name: Get current node info
-  shell: docker info --format '{{.Swarm.NodeID}} {{.Swarm.LocalNodeState}}'
+  shell: docker info --format '{{ "{{" }}.Swarm.NodeID{{ "}}" }} {{ "{{" }}.Swarm.LocalNodeState{{ "}}" }}'
   register: current_node_info
   changed_when: false
 

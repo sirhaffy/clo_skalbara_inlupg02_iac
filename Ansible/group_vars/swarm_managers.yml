@@ -1,4 +1,8 @@
 ---
-# Manager-specific configuration
+# Docker Swarm manager configuration
+swarm_role: manager
 swarm_manager_join_retries: 3
 swarm_manager_join_delay: 10
+
+# First manager in the group is the primary
+swarm_primary: "{{ groups['swarm_managers'][0] == inventory_hostname }}"
