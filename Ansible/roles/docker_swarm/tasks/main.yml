@@ -87,5 +87,5 @@
 
 - name: Show current node status
   debug:
-    msg: "Node {{ ansible_hostname }} is {{ current_node_info.stdout.split()[1] }} in swarm (ID: {{ current_node_info.stdout.split()[0] }})"
+    msg: "Node {{ ansible_hostname }} is {{ current_node_info.stdout.split()[-1] }} in swarm {{ '(ID: ' + current_node_info.stdout.split()[0] + ')' if current_node_info.stdout.split() | length > 1 else '' }}"
   when: current_node_info.stdout is defined
