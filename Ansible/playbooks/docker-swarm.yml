@@ -1,8 +1,33 @@
 ---
 - name: Setup Docker Swarm Cluster
   hosts: docker_swarm
-  become: true
   gather_facts: true
+
+  roles:
+    - docker
+    - docker_swarm
+
+  tasks:
+    - name: Create app network
+      command: >
+        docker network create
+        --driver overlay
+        --attachable
+        {{ app_network | default('app-network') }}
+      register: network_result
+      failed_when:
+        - network_result.rc != 0
+        - '"already exists" not in network_result.stderr'
+
+    - name: Create shared data volume for database synchronization
+      command: >
+        docker volume create
+        --driver local
+        app-data-volume
+      register: volume_result
+      failed_when:
+        - volume_result.rc != 0
+        - '"already exists" not in volume_result.stderr'
 
   pre_tasks:
     - name: Wait for system to be ready
@@ -14,6 +39,7 @@
 
   roles:
     - docker
+    - docker_swarm
 
   post_tasks:
     - name: Verify Docker installation
@@ -140,6 +166,12 @@
       command: >
         docker service update
         --image {{ app_image | default('haffy/clo-fresva-app:latest') }}
+        --env-add NODE_ENV=production
+        --env-add LOAD_BALANCED=true
+        --env-add SERVICE_NAME=clo-fresva-app
+        --env-add CONTAINER_NAME="{{ '{{' }}.Service.Name{{ '}}' }}.{{ '{{' }}.Task.Slot{{ '}}' }}.{{ '{{' }}.Task.ID{{ '}}' }}"
+        --env-add NODE_NAME="{{ '{{' }}.Node.Hostname{{ '}}' }}"
+        --env-add NODE_ID="{{ '{{' }}.Node.ID{{ '}}' }}"
         --update-parallelism 1
         --update-delay 30s
         --update-monitor 10s
@@ -160,9 +192,13 @@
         --replicas {{ app_replicas | default(3) }}
         --network {{ app_network | default('app-network') }}
         --publish {{ app_port | default(80) }}:80
+        --mount type=volume,source=app-data-volume,target=/app/data
         --env NODE_ENV=production
         --env LOAD_BALANCED=true
         --env SERVICE_NAME=clo-fresva-app
+        --env CONTAINER_NAME="{{ '{{' }}.Service.Name{{ '}}' }}.{{ '{{' }}.Task.Slot{{ '}}' }}.{{ '{{' }}.Task.ID{{ '}}' }}"
+        --env NODE_NAME="{{ '{{' }}.Node.Hostname{{ '}}' }}"
+        --env NODE_ID="{{ '{{' }}.Node.ID{{ '}}' }}"
         --hostname="{{ '{{' }}.Service.Name{{ '}}' }}.{{ '{{' }}.Task.Slot{{ '}}' }}.{{ '{{' }}.Task.ID{{ '}}' }}"
         --label com.centurylinklabs.watchtower.enable=true
         --restart-condition on-failure
