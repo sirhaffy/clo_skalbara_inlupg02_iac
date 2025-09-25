@@ -254,15 +254,33 @@ jobs:
         /opt/pipx/venvs/ansible-core/bin/python -m pip install boto3 botocore
         ansible-galaxy collection install amazon.aws
 
-    # Ansible reads the configuration file aws_ec2.yml
-    # The plugin calls the AWS EC2 API
-    # Finds all instances in eu-north-1
-    # Groups them based on Role tags from Terraform
-    # Creates virtual groups: tag_Role_swarm_manager, tag_Role_swarm_worker
-    # Runs the playbook against these dynamic groups
+    # - Ansible reads the configuration file aws_ec2.yml
+    # - The plugin calls the AWS EC2 API
+    # - Finds all instances in eu-north-1
+    # - Groups them based on Role tags from Terraform
+    # - Creates virtual groups: tag_Role_swarm_manager, tag_Role_swarm_worker
+    # - Runs the playbook against these dynamic groups
+
+    - name: Debug AWS EC2 inventory discovery
+      working-directory: ./Ansible
+      run: |
+        echo "=== Testing AWS EC2 plugin inventory discovery ==="
+        ansible-inventory -i aws_ec2.yml --list
+        echo ""
+        echo "=== Available groups ==="
+        ansible-inventory -i aws_ec2.yml --graph
+
     - name: Deploy with Ansible (using AWS EC2 plugin - no inventory file!)
       working-directory: ./Ansible
       run: |
+        # Get bastion IP for proxy configuration
+        BASTION_IP=$(cd ../Terraform && terraform output -raw bastion_public_ip)
+        echo "Using bastion host: $BASTION_IP"
+
+        # Configure Ansible to use bastion proxy for private instances
+        export ANSIBLE_SSH_ARGS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+        export ANSIBLE_SSH_COMMON_ARGS="-o ProxyJump=ec2-user@$BASTION_IP"
+
         # Ansible auto-discovers EC2 instances with tags
         ansible-playbook playbooks/docker-swarm.yml -i aws_ec2.yml -v
 

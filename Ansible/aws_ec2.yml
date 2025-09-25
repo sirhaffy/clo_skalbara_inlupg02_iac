@@ -38,7 +38,9 @@ groups:
 
 # Compose variables from instance metadata
 compose:
-  ansible_host: public_ip_address | default(private_ip_address)
+  ansible_host: private_ip_address
+  ansible_user: ec2-user
+  # SSH settings will be configured via environment variables
   ec2_state: state.name
   ec2_instance_type: instance_type
   ec2_placement_az: placement.availability_zone
