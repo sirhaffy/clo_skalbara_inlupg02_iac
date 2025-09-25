@@ -243,12 +243,23 @@ jobs:
         echo "    UserKnownHostsFile /dev/null" >> ~/.ssh/config
         chmod 600 ~/.ssh/config
 
-    # AWS SDK libraries (boto3 and botocore) for Ansible to interact with AWS resources.
+    # The AWS EC2 Plugin is Ansible's way to automatically discover AWS EC2 instances instead of hardcoding IP addresses.
+    # - Connects to the AWS API
+    # - Finds all EC2 instances in eu-north-1
+    # - Groups them based on Role tags from Terraform
+    # - Creates a temporary (in-memory) dynamic inventory file.
+    # Path: Use the specific Python environment used by Ansible to install boto3 and botocore
     - name: Install AWS EC2 plugin for Ansible
       run: |
-        pip install boto3 botocore
+        /opt/pipx/venvs/ansible-core/bin/python -m pip install boto3 botocore
         ansible-galaxy collection install amazon.aws
 
+    # Ansible reads the configuration file aws_ec2.yml
+    # The plugin calls the AWS EC2 API
+    # Finds all instances in eu-north-1
+    # Groups them based on Role tags from Terraform
+    # Creates virtual groups: tag_Role_swarm_manager, tag_Role_swarm_worker
+    # Runs the playbook against these dynamic groups
     - name: Deploy with Ansible (using AWS EC2 plugin - no inventory file!)
       working-directory: ./Ansible
       run: |
