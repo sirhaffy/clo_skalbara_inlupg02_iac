@@ -1,11 +1,15 @@
 ---
-- name: Setup Docker Swarm Cluster
+- name: Setup Docker and Docker Swarm
   hosts: docker_swarm
   gather_facts: true
 
   roles:
     - docker
     - docker_swarm
+
+- name: Setup Docker Swarm Resources
+  hosts: swarm_managers[0]
+  gather_facts: false
 
   tasks:
     - name: Create app network
@@ -28,28 +32,6 @@
       failed_when:
         - volume_result.rc != 0
         - '"already exists" not in volume_result.stderr'
-
-  pre_tasks:
-    - name: Wait for system to be ready
-      wait_for_connection:
-        timeout: 300
-
-    - name: Gather facts
-      setup:
-
-  roles:
-    - docker
-    - docker_swarm
-
-  post_tasks:
-    - name: Verify Docker installation
-      command: docker --version
-      register: docker_version
-      changed_when: false
-
-    - name: Display Docker version
-      debug:
-        msg: "Docker version: {{ docker_version.stdout }}"
 
 - name: Initialize Docker Swarm
   hosts: swarm_managers
