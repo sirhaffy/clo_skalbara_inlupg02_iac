@@ -85,8 +85,12 @@
         --env WATCHTOWER_ROLLING_RESTART=true
         --env WATCHTOWER_LABEL_ENABLE=true
         --env WATCHTOWER_DEBUG=true
+        --env WATCHTOWER_LOG_LEVEL=debug
+        --env WATCHTOWER_TIMEOUT=60s
         --label com.centurylinklabs.watchtower.enable=false
-        containrrr/watchtower
+        --restart-condition on-failure
+        --restart-max-attempts 3
+        containrrr/watchtower:latest
       register: watchtower_result
       when: watchtower_name not in watchtower_exists.stdout
       failed_when: false
@@ -110,37 +114,14 @@
       failed_when: false
       changed_when: false
 
-    - name: Get current service image digest if service exists
-      command: docker service inspect {{ app_name }} --format "{{'{{'}}{{'}}'}}Spec.TaskTemplate.ContainerSpec.Image{{'{{'}}{{'}}'}}"
-      register: current_image
-      when: existing_service.stdout_lines | length > 1
-      failed_when: false
-      changed_when: false
-
-    - name: Get latest image digest from registry
-      command: docker manifest inspect {{ app_image }} --verbose
-      register: latest_image_manifest
-      failed_when: false
-      changed_when: false
-
-    - name: Parse latest image digest
-      set_fact:
-        latest_digest: "{{ latest_image_manifest.stdout | from_json | json_query('[0].Descriptor.digest') }}"
-      when: latest_image_manifest.rc == 0
-
-    - name: Check if image update is needed
-      set_fact:
-        needs_update: "{{ (existing_service.stdout_lines | length <= 1) or (latest_digest is defined and latest_digest not in (current_image.stdout | default(''))) }}"
-
-    - name: Display update decision
+    - name: Display deployment context
       debug:
         msg: |
+          Deploying with image: {{ app_image }}
           Service exists: {{ existing_service.stdout_lines | length > 1 }}
-          Current image: {{ current_image.stdout | default('none') }}
-          Latest digest: {{ latest_digest | default('unknown') }}
-          Update needed: {{ needs_update }}
+          Strategy: Watchtower handles automatic updates of latest images
 
-    - name: Perform smart rolling update when needed
+    - name: Update service only for initial deployment or manual changes (not image updates)
       command: >
         docker service update
         --image {{ app_image }}
@@ -160,7 +141,7 @@
         --rollback-monitor 5s
         {{ app_name }}
       register: app_update_result
-      when: existing_service.stdout_lines | length > 1 and needs_update
+      when: false  # Only run manually when needed - Watchtower handles image updates
       failed_when: false
 
     - name: Docker Swarm Service Setup (first deployment)
@@ -194,7 +175,7 @@
 
     - name: Set deployment result
       set_fact:
-        app_result: "{{ app_update_result if (existing_service.stdout_lines | length > 1 and needs_update) else app_create_result if (existing_service.stdout_lines | length <= 1) else {'rc': 0, 'stdout': 'No update needed', 'stderr': '', 'changed': false} }}"
+        app_result: "{{ app_update_result if (existing_service.stdout_lines | length > 1) else app_create_result if (existing_service.stdout_lines | length <= 1) else {'rc': 0, 'stdout': 'No update needed', 'stderr': '', 'changed': false} }}"
 
     - name: Wait for rolling update to complete
       command: docker service ps {{ app_name }} --filter "desired-state=running" --format "{{ '{{' }}.CurrentState{{ '}}' }}"
@@ -202,11 +183,11 @@
       until: update_status.stdout_lines | select('match', '^Running.*') | list | length >= (app_replicas | int)
       retries: 20
       delay: 10
-      when: needs_update and app_result.rc is defined and app_result.rc == 0
+      when: app_result.rc is defined and app_result.rc == 0
 
     - name: Clean up old/unused images on all nodes
       command: docker image prune -f
-      when: needs_update and app_result.rc is defined and app_result.rc == 0
+      when: app_result.rc is defined and app_result.rc == 0
       failed_when: false
       changed_when: false
 
@@ -315,3 +296,29 @@
     - name: Display services
       debug:
         msg: "{{ services.stdout_lines }}"
+
+    - name: Check Watchtower logs for debugging
+      command: docker service logs {{ watchtower_name }} --tail 20
+      register: watchtower_logs
+      failed_when: false
+      changed_when: false
+
+    - name: Display Watchtower logs
+      debug:
+        msg: |
+          Recent Watchtower logs:
+          {{ watchtower_logs.stdout_lines | join('\n') }}
+      when: watchtower_logs.rc == 0
+
+    - name: Force Watchtower to check now (manual trigger)
+      command: docker service update --force {{ watchtower_name }}
+      register: watchtower_trigger
+      failed_when: false
+      changed_when: false
+
+    - name: Display Watchtower trigger result
+      debug:
+        msg: |
+          Watchtower manual check triggered
+          Result: {{ watchtower_trigger.rc }}
+          This forces Watchtower to check for new images immediately

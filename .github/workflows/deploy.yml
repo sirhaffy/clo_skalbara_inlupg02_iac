@@ -270,13 +270,14 @@ jobs:
         echo "=== Available groups ==="
         ansible-inventory -i aws_ec2.yml --graph
 
-    - name: Deploy with Ansible (using AWS EC2 plugin - no inventory file!)
+    - name: Run Ansible Playbook
       working-directory: ./Ansible
+      env:
+        ANSIBLE_HOST_KEY_CHECKING: False
+        ANSIBLE_STDOUT_CALLBACK: yaml
+        AWS_REGION: ${{ env.AWS_REGION }}
       run: |
-        # Ansible uses the SSH config already created above - no extra SSH args needed!
-        echo "Using existing SSH config with bastion proxy for all 10.0.*.* hosts"
-
-        # Ansible auto-discovers EC2 instances with tags
+        # Run the playbook - Watchtower will handle image updates automatically
         ansible-playbook playbooks/docker-swarm.yml -i aws_ec2.yml -v
 
     - name: Verify deployment
