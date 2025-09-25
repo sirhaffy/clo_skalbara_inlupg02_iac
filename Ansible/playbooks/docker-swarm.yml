@@ -17,7 +17,7 @@
         docker network create
         --driver overlay
         --attachable
-        {{ app_network | default('app-network') }}
+        {{ app_network }}
       register: network_result
       failed_when:
         - network_result.rc != 0
@@ -27,7 +27,7 @@
       command: >
         docker volume create
         --driver local
-        app-data-volume
+        {{ app_data_volume }}
       register: volume_result
       failed_when:
         - volume_result.rc != 0
@@ -67,25 +67,19 @@
   gather_facts: false
 
   tasks:
-    - name: Create app network
-      command: >
-        docker network create
-        --driver overlay
-        --attachable
-        {{ app_network | default('app-network') }}
-      register: network_result
-      failed_when:
-        - network_result.rc != 0
-        - "'already exists' not in network_result.stderr"
-      changed_when: network_result.rc == 0
+    - name: Check if Watchtower service already exists
+      command: docker service ls --filter name={{ watchtower_name }} --format "{{ '{{' }}.Name{{ '}}' }}"
+      register: watchtower_exists
+      failed_when: false
+      changed_when: false
 
     - name: Deploy Watchtower service
       command: >
         docker service create
-        --name {{ watchtower_name | default('watchtower') }}
+        --name {{ watchtower_name }}
         --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock
         --constraint 'node.role==manager'
-        --env WATCHTOWER_POLL_INTERVAL={{ watchtower_interval | default(300) }}
+        --env WATCHTOWER_POLL_INTERVAL={{ watchtower_interval }}
         --env WATCHTOWER_CLEANUP=true
         --env WATCHTOWER_INCLUDE_RESTARTING=true
         --env WATCHTOWER_ROLLING_RESTART=true
@@ -93,28 +87,40 @@
         --env WATCHTOWER_DEBUG=true
         --label com.centurylinklabs.watchtower.enable=false
         containrrr/watchtower
+      register: watchtower_result
+      when: watchtower_name not in watchtower_exists.stdout
+      failed_when: false
+
+    - name: Debug Watchtower deployment
+      debug:
+        msg: |
+          Watchtower exists check: {{ watchtower_exists.stdout }}
+          Watchtower deployment needed: {{ watchtower_name not in watchtower_exists.stdout }}
+          {% if watchtower_result is defined %}
+          Watchtower deployment result: {{ watchtower_result.rc }}
+          {% endif %}
 
     - name: Check if app image exists
-      command: docker manifest inspect {{ app_image | default('haffy/clo-fresva-app:latest') }}
+      command: docker manifest inspect {{ app_image }}
       register: image_check
       failed_when: false
       changed_when: false
 
     - name: Check if app service already exists
-      command: docker service ls --filter name={{ app_name | default('clo-fresva-app') }} --format "table {{'{{'}}{{'}}'}}Name{{'{{'}}{{'}}'}}}"
+      command: docker service ls --filter name={{ app_name }} --format "table {{'{{'}}{{'}}'}}Name{{'{{'}}{{'}}'}}}"
       register: existing_service
       failed_when: false
       changed_when: false
 
     - name: Get current service image digest if service exists
-      command: docker service inspect {{ app_name | default('clo-fresva-app') }} --format "{{'{{'}}{{'}}'}}Spec.TaskTemplate.ContainerSpec.Image{{'{{'}}{{'}}'}}"
+      command: docker service inspect {{ app_name }} --format "{{'{{'}}{{'}}'}}Spec.TaskTemplate.ContainerSpec.Image{{'{{'}}{{'}}'}}"
       register: current_image
       when: existing_service.stdout_lines | length > 1
       failed_when: false
       changed_when: false
 
     - name: Get latest image digest from registry
-      command: docker manifest inspect {{ app_image | default('haffy/clo-fresva-app:latest') }} --verbose
+      command: docker manifest inspect {{ app_image }} --verbose
       register: latest_image_manifest
       failed_when: false
       changed_when: false
@@ -139,10 +145,10 @@
     - name: Perform smart rolling update when needed
       command: >
         docker service update
-        --image {{ app_image | default('haffy/clo-fresva-app:latest') }}
+        --image {{ app_image }}
         --env-add NODE_ENV=production
         --env-add LOAD_BALANCED=true
-        --env-add SERVICE_NAME=clo-fresva-app
+        --env-add SERVICE_NAME={{ app_service_name }}
         --env-add CONTAINER_NAME="{{ '{{' }}.Service.Name{{ '}}' }}.{{ '{{' }}.Task.Slot{{ '}}' }}.{{ '{{' }}.Task.ID{{ '}}' }}"
         --env-add NODE_NAME="{{ '{{' }}.Node.Hostname{{ '}}' }}"
         --env-add NODE_ID="{{ '{{' }}.Node.ID{{ '}}' }}"
@@ -154,22 +160,22 @@
         --rollback-parallelism 1
         --rollback-delay 10s
         --rollback-monitor 5s
-        {{ app_name | default('clo-fresva-app') }}
+        {{ app_name }}
       register: app_update_result
       when: existing_service.stdout_lines | length > 1 and needs_update
       failed_when: false
 
-    - name: Create new application service (first deployment)
+    - name: Docker Swarm Service Setup (first deployment)
       command: >
         docker service create
-        --name {{ app_name | default('clo-fresva-app') }}
-        --replicas {{ app_replicas | default(3) }}
-        --network {{ app_network | default('app-network') }}
-        --publish {{ app_port | default(80) }}:80
-        --mount type=volume,source=app-data-volume,target=/app/data
+        --name {{ app_name }}
+        --replicas {{ app_replicas }}
+        --network {{ app_network }}
+        --publish {{ app_port }}:80
+        --mount type=volume,source={{ app_data_volume }},target=/app/data
         --env NODE_ENV=production
         --env LOAD_BALANCED=true
-        --env SERVICE_NAME=clo-fresva-app
+        --env SERVICE_NAME={{ app_service_name }}
         --env CONTAINER_NAME="{{ '{{' }}.Service.Name{{ '}}' }}.{{ '{{' }}.Task.Slot{{ '}}' }}.{{ '{{' }}.Task.ID{{ '}}' }}"
         --env NODE_NAME="{{ '{{' }}.Node.Hostname{{ '}}' }}"
         --env NODE_ID="{{ '{{' }}.Node.ID{{ '}}' }}"
@@ -183,7 +189,7 @@
         --update-max-failure-ratio 0.3
         --rollback-parallelism 1
         --rollback-delay 10s
-        {{ app_image | default('haffy/clo-fresva-app:latest') }}
+        {{ app_image }}
       register: app_create_result
       when: existing_service.stdout_lines | length <= 1
       failed_when: false
@@ -193,9 +199,9 @@
         app_result: "{{ app_update_result if (existing_service.stdout_lines | length > 1 and needs_update) else app_create_result if (existing_service.stdout_lines | length <= 1) else {'rc': 0, 'stdout': 'No update needed', 'stderr': '', 'changed': false} }}"
 
     - name: Wait for rolling update to complete
-      command: docker service ps {{ app_name | default('clo-fresva-app') }} --filter "desired-state=running" --format "{{ '{{' }}.CurrentState{{ '}}' }}"
+      command: docker service ps {{ app_name }} --filter "desired-state=running" --format "{{ '{{' }}.CurrentState{{ '}}' }}"
       register: update_status
-      until: update_status.stdout_lines | select('match', '^Running.*') | list | length >= (app_replicas | default(3) | int)
+      until: update_status.stdout_lines | select('match', '^Running.*') | list | length >= (app_replicas | int)
       retries: 20
       delay: 10
       when: needs_update and app_result.rc is defined and app_result.rc == 0
@@ -207,7 +213,7 @@
       changed_when: false
 
     - name: Verify service health after update
-      command: docker service ps {{ app_name | default('clo-fresva-app') }} --format "{{ '{{' }}.Name{{ '}}' }}\t{{ '{{' }}.CurrentState{{ '}}' }}\t{{ '{{' }}.Error{{ '}}' }}"
+      command: docker service ps {{ app_name }} --format "{{ '{{' }}.Name{{ '}}' }}\t{{ '{{' }}.CurrentState{{ '}}' }}\t{{ '{{' }}.Error{{ '}}' }}"
       register: service_status
       failed_when: false
       changed_when: false
@@ -230,7 +236,7 @@
         msg: "{{ services_debug.stdout_lines }}"
 
     - name: Check app service status
-      command: docker service ps {{ app_name | default('clo-fresva-app') }} --no-trunc
+      command: docker service ps {{ app_name }} --no-trunc
       register: app_service_status
       failed_when: false
       changed_when: false
@@ -243,7 +249,7 @@
     - name: Display image not found message
       debug:
         msg: |
-          Image haffy/clo-fresva-app:latest not found
+          Image {{ app_image }} not found
           Deploy your frontend app first to make this image available
           Expected behavior: ALB will show 502 until frontend is deployed
       when: image_check.rc != 0
@@ -283,11 +289,11 @@
 
     - name: Set watchtower status
       set_fact:
-        watchtower_status: "{{ 'Created' if watchtower_result.changed else 'Already exists' }}"
+        watchtower_status: "{{ 'Created' if (watchtower_result is defined and watchtower_result.changed) else 'Already exists' }}"
 
     - name: Set app service status
       set_fact:
-        app_service_status: "{{ 'Created' if app_result.changed else 'Already exists' }}"
+        app_service_status: "{{ 'Created' if (app_result is defined and app_result.changed) else 'Already exists' }}"
 
     - name: Set health check status
       set_fact:
@@ -301,7 +307,7 @@
           - App Service: {{ app_service_status }}
           - Health Check: {{ health_status }}
           - Application URL: http://{{ ansible_default_ipv4.address }}
-          - Watchtower will check for updates every {{ watchtower_interval | default(300) }}s
+          - Watchtower will check for updates every {{ watchtower_interval }}s
 
     - name: Show service status
       command: docker service ls

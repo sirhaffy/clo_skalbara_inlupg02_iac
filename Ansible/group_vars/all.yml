@@ -17,6 +17,8 @@ app_image: "haffy/clo-fresva-app:latest"
 app_replicas: 3
 app_port: 80
 app_network: "app-network"
+app_data_volume: "app-data-volume"
+app_service_name: "clo-fresva-app"
 
 # Watchtower configuration
 watchtower_name: "watchtower"
