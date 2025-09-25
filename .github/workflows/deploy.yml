@@ -282,8 +282,8 @@ jobs:
     - name: Verify deployment
       working-directory: ./Ansible
       run: |
-        # Use AWS EC2 plugin to find managers
-        ansible tag_Role_swarm_manager -i aws_ec2.yml -m shell -a "docker node ls" --limit 1
+        # Use AWS EC2 plugin to find first manager and show cluster status
+        ansible swarm_managers[0] -i aws_ec2.yml -m shell -a "docker node ls"
 
     - name: Deployment Summary
       working-directory: ./Terraform
