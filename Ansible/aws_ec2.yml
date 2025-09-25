@@ -1,5 +1,6 @@
 # AWS EC2 dynamic inventory configuration
 # URL: https://docs.ansible.com/ansible/latest/collections/amazon/aws/aws_ec2_inventory.html
+
 plugin: amazon.aws.aws_ec2
 regions:
   - eu-north-1
@@ -34,7 +35,10 @@ groups:
 
 # Compose variables from instance metadata
 compose:
-  ansible_host: private_ip_address
+  # Bastion uses public IP, swarm nodes use private IP.
+  # Checks if public_ip_address exists, otherwise falls back to private_ip_address.
+  # So it's important that bastion has a public IP, and swarm nodes do not.
+  ansible_host: public_ip_address | default(private_ip_address)
   ansible_user: ec2-user
   # SSH settings will be configured via environment variables
   ec2_state: state.name
@@ -43,7 +47,7 @@ compose:
   ec2_vpc_id: vpc_id
   ec2_subnet_id: subnet_id
 
-# Use private IP for instances without public IP (swarm nodes)
+# Use private IP for instances without public IP (swarm nodes).
 hostnames:
   - private-ip-address
   - dns-name
