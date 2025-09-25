@@ -122,15 +122,8 @@
         --env NODE_ENV=production
         --env LOAD_BALANCED=true
         --label com.centurylinklabs.watchtower.enable=true
-        --update-config parallelism=1,delay=10s,failure-action=rollback,order=start-first
-        --rollback-config parallelism=1,delay=10s
         --restart-condition on-failure
         --restart-max-attempts 3
-        --health-cmd "curl -f http://localhost{{ health_endpoint | default('/api/health') }} || exit 1"
-        --health-interval 30s
-        --health-retries 3
-        --health-timeout 10s
-        --health-start-period 40s
         {{ app_image | default('haffy/clo-fresva-app:latest') }}
       register: app_result
       changed_when: app_result.rc == 0
