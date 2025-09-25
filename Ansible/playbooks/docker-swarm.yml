@@ -58,8 +58,17 @@
   hosts: swarm_managers[0]
   gather_facts: false
   vars:
-    app_image: "haffy/clo-fresva-app:latest"
-    watchtower_interval: 300  # Check every 5 minutes
+    # Fallback values in case variables from all.yml are not loaded
+    app_name: "{{ app_name | default('clo-fresva-app') }}"
+    app_image: "{{ app_image | default('haffy/clo-fresva-app:latest') }}"
+    app_replicas: "{{ app_replicas | default(3) }}"
+    app_port: "{{ app_port | default(80) }}"
+    app_network: "{{ app_network | default('app-network') }}"
+    watchtower_name: "{{ watchtower_name | default('watchtower') }}"
+    watchtower_interval: "{{ watchtower_interval | default(300) }}"
+    health_endpoint: "{{ health_endpoint | default('/api/health') }}"
+    health_retries: "{{ health_retries | default(12) }}"
+    health_delay: "{{ health_delay | default(10) }}"
 
   tasks:
     - name: Create app network
@@ -67,7 +76,7 @@
         docker network create
         --driver overlay
         --attachable
-        app-network
+        {{ app_network }}
       register: network_result
       failed_when:
         - network_result.rc != 0
@@ -77,7 +86,7 @@
     - name: Deploy Watchtower service
       command: >
         docker service create
-        --name watchtower
+        --name {{ watchtower_name }}
         --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock
         --constraint 'node.role==manager'
         --env WATCHTOWER_POLL_INTERVAL={{ watchtower_interval }}
@@ -103,64 +112,25 @@
       failed_when: false
       changed_when: false
 
-    - name: Deploy maintenance page (fallback)
-      command: >
-        docker service create
-        --name maintenance-page
-        --replicas 2
-        --network app-network
-        --publish 80:80
-        --label com.centurylinklabs.watchtower.enable=false
-        --restart-condition on-failure
-        --restart-max-attempts 3
-        --mount type=tmpfs,destination=/usr/share/nginx/html
-        nginx:alpine
-      register: maintenance_result
-      when: image_check.rc != 0
-      failed_when: false
-      changed_when: maintenance_result.rc == 0
-
-    - name: Create custom maintenance HTML
-      command: >
-        docker exec $(docker service ps maintenance-page --format "table {{.ID}}" --no-trunc | tail -n +2 | head -1)
-        sh -c 'cat > /usr/share/nginx/html/index.html << EOF
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Coming Soon - CLO Fresva App</title>
-            <style>
-                body { font-family: Arial, sans-serif; text-align: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; margin: 0; padding: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
-                .container { max-width: 600px; padding: 2rem; }
-                h1 { font-size: 3rem; margin-bottom: 1rem; }
-                p { font-size: 1.2rem; margin-bottom: 2rem; }
-                .spinner { border: 4px solid rgba(255,255,255,0.3); border-radius: 50%; border-top: 4px solid white; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto; }
-                @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <h1>🚀 Coming Soon</h1>
-                <div class="spinner"></div>
-                <p>We are preparing something amazing for you!</p>
-                <p>Our application is being deployed and will be available shortly.</p>
-                <small>CLO Fresva - Skalbara Molnapplikationer</small>
-            </div>
-        </body>
-        </html>
-        EOF'
-      when: image_check.rc != 0 and maintenance_result.rc == 0
+    - name: Check if app service already exists
+      command: docker service ls --filter name={{ app_name }} --format "table {{.Name}}"
+      register: existing_service
       failed_when: false
       changed_when: false
 
-    - name: Deploy application service (if image exists)
+    - name: Remove existing app service if it exists
+      command: docker service rm {{ app_name }}
+      when: "'{{ app_name }}' in existing_service.stdout"
+      failed_when: false
+      changed_when: false
+
+    - name: Force deploy application service (always try to deploy)
       command: >
         docker service create
-        --name clo-fresva-app
-        --replicas 3
-        --network app-network
-        --publish 80:80
+        --name {{ app_name }}
+        --replicas {{ app_replicas }}
+        --network {{ app_network }}
+        --publish {{ app_port }}:80
         --env NODE_ENV=production
         --env LOAD_BALANCED=true
         --label com.centurylinklabs.watchtower.enable=true
@@ -168,22 +138,42 @@
         --rollback-config parallelism=1,delay=10s
         --restart-condition on-failure
         --restart-max-attempts 3
-        --health-cmd "curl -f http://localhost/health || exit 1"
+        --health-cmd "curl -f http://localhost{{ health_endpoint }} || exit 1"
         --health-interval 30s
         --health-retries 3
         --health-timeout 10s
         --health-start-period 40s
         {{ app_image }}
       register: app_result
-      when: image_check.rc == 0
-      failed_when: false
       changed_when: app_result.rc == 0
 
-    - name: Remove maintenance page if main app is running
-      command: docker service rm maintenance-page
-      when: image_check.rc == 0 and app_result.rc == 0
+    - name: Debug app deployment result
+      debug:
+        msg: |
+          App deployment result:
+          - Return code: {{ app_result.rc }}
+          - Stdout: {{ app_result.stdout }}
+          - Stderr: {{ app_result.stderr }}
+
+    - name: Show all services after deployment
+      command: docker service ls
+      register: services_debug
+      changed_when: false
+
+    - name: Display all services
+      debug:
+        msg: "{{ services_debug.stdout_lines }}"
+
+    - name: Check app service status
+      command: docker service ps {{ app_name }} --no-trunc
+      register: app_service_status
       failed_when: false
       changed_when: false
+
+    - name: Display app service status
+      debug:
+        msg: "{{ app_service_status.stdout_lines }}"
+      when: app_service_status.rc == 0
 
     - name: Display deployment status
       debug:
@@ -212,13 +202,13 @@
 
     - name: Wait for application to be healthy
       uri:
-        url: "http://{{ ansible_default_ipv4.address }}/api/health"
+        url: "http://{{ ansible_default_ipv4.address }}{{ health_endpoint }}"
         method: GET
         status_code: 200
       register: health_check
       until: health_check.status == 200
-      retries: 12
-      delay: 10
+      retries: "{{ health_retries }}"
+      delay: "{{ health_delay }}"
       ignore_errors: true
 
     - name: Display deployment status
