@@ -106,13 +106,17 @@
       failed_when: false
       changed_when: false
 
-    - name: Create or update application service
+    - name: Update existing application service
       command: >
-        {% if existing_service.stdout_lines | length > 1 %}
         docker service update
         --image {{ app_image | default('haffy/clo-fresva-app:latest') }}
         {{ app_name | default('clo-fresva-app') }}
-        {% else %}
+      register: app_update_result
+      when: existing_service.stdout_lines | length > 1
+      failed_when: false
+
+    - name: Create new application service
+      command: >
         docker service create
         --name {{ app_name | default('clo-fresva-app') }}
         --replicas {{ app_replicas | default(3) }}
@@ -121,7 +125,7 @@
         --env NODE_ENV=production
         --env LOAD_BALANCED=true
         --env SERVICE_NAME=clo-fresva-app
-        --hostname="{{.Service.Name}}.{{.Task.Slot}}.{{.Task.ID}}"
+        --hostname="{{ '{{' }}.Service.Name{{ '}}' }}.{{ '{{' }}.Task.Slot{{ '}}' }}.{{ '{{' }}.Task.ID{{ '}}' }}"
         --label com.centurylinklabs.watchtower.enable=true
         --restart-condition on-failure
         --restart-max-attempts 3
@@ -129,8 +133,13 @@
         --update-delay 10s
         --update-failure-action rollback
         {{ app_image | default('haffy/clo-fresva-app:latest') }}
-        {% endif %}
-      register: app_result
+      register: app_create_result
+      when: existing_service.stdout_lines | length <= 1
+      failed_when: false
+
+    - name: Set deployment result
+      set_fact:
+        app_result: "{{ app_update_result if (existing_service.stdout_lines | length > 1) else app_create_result }}"
       changed_when: app_result.rc == 0
 
     - name: Debug app deployment result
@@ -161,20 +170,26 @@
         msg: "{{ app_service_status.stdout_lines }}"
       when: app_service_status.rc == 0
 
-    - name: Display deployment status
+    - name: Display image not found message
       debug:
         msg: |
-          {% if image_check.rc != 0 %}
-            Image {{ app_image | default('haffy/clo-fresva-app:latest') }} not found
-            Deploy your frontend app first to make this image available
-            Expected behavior: ALB will show 502 until frontend is deployed
-          {% elif app_result.rc == 0 %}
-            Application service deployed successfully
-            App running on port 80 (Nginx serving React app)
-            Health check: curl http://localhost:3000/api/health
-          {% else %}
-            Service deployment failed: {{ app_result.stderr | default('Unknown error') }}
-          {% endif %}
+          Image haffy/clo-fresva-app:latest not found
+          Deploy your frontend app first to make this image available
+          Expected behavior: ALB will show 502 until frontend is deployed
+      when: image_check.rc != 0
+
+    - name: Display successful deployment message
+      debug:
+        msg: |
+          Application service deployed successfully
+          App running on port 80 (Nginx serving React app)
+          Health check: curl http://localhost:3000/api/health
+      when: image_check.rc == 0 and app_result.rc == 0
+
+    - name: Display deployment failure message
+      debug:
+        msg: "Service deployment failed: {{ app_result.stderr | default('Unknown error') }}"
+      when: image_check.rc == 0 and app_result.rc != 0
 
     - name: Show service status
       command: docker service ls
@@ -197,13 +212,25 @@
       delay: "{{ health_delay | default(10) }}"
       ignore_errors: true
 
-    - name: Display deployment status
+    - name: Set watchtower status
+      set_fact:
+        watchtower_status: "{{ 'Created' if watchtower_result.changed else 'Already exists' }}"
+
+    - name: Set app service status
+      set_fact:
+        app_service_status: "{{ 'Created' if app_result.changed else 'Already exists' }}"
+
+    - name: Set health check status
+      set_fact:
+        health_status: "{{ 'Healthy' if health_check.status == 200 else 'Failed' }}"
+
+    - name: Display deployment summary
       debug:
         msg: |
           Deployment completed!
-          - Watchtower: {{ 'Created' if watchtower_result.changed else 'Already exists' }}
-          - App Service: {{ 'Created' if app_result.changed else 'Already exists' }}
-          - Health Check: {{ 'Healthy' if health_check.status == 200 else 'Failed' }}
+          - Watchtower: {{ watchtower_status }}
+          - App Service: {{ app_service_status }}
+          - Health Check: {{ health_status }}
           - Application URL: http://{{ ansible_default_ipv4.address }}
           - Watchtower will check for updates every {{ watchtower_interval | default(300) }}s
 
