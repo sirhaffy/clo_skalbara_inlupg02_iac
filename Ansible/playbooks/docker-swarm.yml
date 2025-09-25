@@ -96,9 +96,7 @@
         msg: |
           Watchtower exists check: {{ watchtower_exists.stdout }}
           Watchtower deployment needed: {{ watchtower_name not in watchtower_exists.stdout }}
-          {% if watchtower_result is defined %}
-          Watchtower deployment result: {{ watchtower_result.rc }}
-          {% endif %}
+          Watchtower deployment result: {{ watchtower_result.rc | default('N/A - service already existed') }}
 
     - name: Check if app image exists
       command: docker manifest inspect {{ app_image }}
