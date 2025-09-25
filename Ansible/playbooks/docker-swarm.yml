@@ -101,21 +101,59 @@
       changed_when: false
 
     - name: Check if app service already exists
-      command: docker service ls --filter name={{ app_name | default('clo-fresva-app') }} --format "table {{ '{{' }}.Name{{ '}}' }}"
+      command: docker service ls --filter name={{ app_name | default('clo-fresva-app') }} --format "table {{'{{'}}{{'}}'}}Name{{'{{'}}{{'}}'}}}"
       register: existing_service
       failed_when: false
       changed_when: false
 
-    - name: Update existing application service
+    - name: Get current service image digest if service exists
+      command: docker service inspect {{ app_name | default('clo-fresva-app') }} --format "{{'{{'}}{{'}}'}}Spec.TaskTemplate.ContainerSpec.Image{{'{{'}}{{'}}'}}"
+      register: current_image
+      when: existing_service.stdout_lines | length > 1
+      failed_when: false
+      changed_when: false
+
+    - name: Get latest image digest from registry
+      command: docker manifest inspect {{ app_image | default('haffy/clo-fresva-app:latest') }} --verbose
+      register: latest_image_manifest
+      failed_when: false
+      changed_when: false
+
+    - name: Parse latest image digest
+      set_fact:
+        latest_digest: "{{ latest_image_manifest.stdout | from_json | json_query('[0].Descriptor.digest') }}"
+      when: latest_image_manifest.rc == 0
+
+    - name: Check if image update is needed
+      set_fact:
+        needs_update: "{{ (existing_service.stdout_lines | length <= 1) or (latest_digest is defined and latest_digest not in (current_image.stdout | default(''))) }}"
+
+    - name: Display update decision
+      debug:
+        msg: |
+          Service exists: {{ existing_service.stdout_lines | length > 1 }}
+          Current image: {{ current_image.stdout | default('none') }}
+          Latest digest: {{ latest_digest | default('unknown') }}
+          Update needed: {{ needs_update }}
+
+    - name: Perform smart rolling update when needed
       command: >
         docker service update
         --image {{ app_image | default('haffy/clo-fresva-app:latest') }}
+        --update-parallelism 1
+        --update-delay 30s
+        --update-monitor 10s
+        --update-failure-action rollback
+        --update-max-failure-ratio 0.3
+        --rollback-parallelism 1
+        --rollback-delay 10s
+        --rollback-monitor 5s
         {{ app_name | default('clo-fresva-app') }}
       register: app_update_result
-      when: existing_service.stdout_lines | length > 1
+      when: existing_service.stdout_lines | length > 1 and needs_update
       failed_when: false
 
-    - name: Create new application service
+    - name: Create new application service (first deployment)
       command: >
         docker service create
         --name {{ app_name | default('clo-fresva-app') }}
@@ -130,8 +168,11 @@
         --restart-condition on-failure
         --restart-max-attempts 3
         --update-parallelism 1
-        --update-delay 10s
+        --update-delay 30s
         --update-failure-action rollback
+        --update-max-failure-ratio 0.3
+        --rollback-parallelism 1
+        --rollback-delay 10s
         {{ app_image | default('haffy/clo-fresva-app:latest') }}
       register: app_create_result
       when: existing_service.stdout_lines | length <= 1
@@ -139,8 +180,27 @@
 
     - name: Set deployment result
       set_fact:
-        app_result: "{{ app_update_result if (existing_service.stdout_lines | length > 1) else app_create_result }}"
-      changed_when: app_result.rc == 0
+        app_result: "{{ app_update_result if (existing_service.stdout_lines | length > 1 and needs_update) else app_create_result if (existing_service.stdout_lines | length <= 1) else {'rc': 0, 'stdout': 'No update needed', 'stderr': '', 'changed': false} }}"
+
+    - name: Wait for rolling update to complete
+      command: docker service ps {{ app_name | default('clo-fresva-app') }} --filter "desired-state=running" --format "{{ '{{' }}.CurrentState{{ '}}' }}"
+      register: update_status
+      until: update_status.stdout_lines | select('match', '^Running.*') | list | length >= (app_replicas | default(3) | int)
+      retries: 20
+      delay: 10
+      when: needs_update and app_result.rc is defined and app_result.rc == 0
+
+    - name: Clean up old/unused images on all nodes
+      command: docker image prune -f
+      when: needs_update and app_result.rc is defined and app_result.rc == 0
+      failed_when: false
+      changed_when: false
+
+    - name: Verify service health after update
+      command: docker service ps {{ app_name | default('clo-fresva-app') }} --format "{{ '{{' }}.Name{{ '}}' }}\t{{ '{{' }}.CurrentState{{ '}}' }}\t{{ '{{' }}.Error{{ '}}' }}"
+      register: service_status
+      failed_when: false
+      changed_when: false
 
     - name: Debug app deployment result
       debug:
@@ -199,7 +259,6 @@
     - name: Display services
       debug:
         msg: "{{ service_list.stdout_lines }}"
-      changed_when: app_result.rc == 0
 
     - name: Wait for application to be healthy
       uri:
