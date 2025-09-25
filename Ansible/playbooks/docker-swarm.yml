@@ -108,7 +108,7 @@
 
     - name: Remove existing app service if it exists
       command: docker service rm {{ app_name | default('clo-fresva-app') }}
-      when: "'{{ app_name | default('clo-fresva-app') }}' in existing_service.stdout"
+      when: existing_service.stdout_lines | length > 1
       failed_when: false
       changed_when: false
 
