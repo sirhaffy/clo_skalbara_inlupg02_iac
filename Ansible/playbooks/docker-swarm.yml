@@ -106,14 +106,13 @@
       failed_when: false
       changed_when: false
 
-    - name: Remove existing app service if it exists
-      command: docker service rm {{ app_name | default('clo-fresva-app') }}
-      when: existing_service.stdout_lines | length > 1
-      failed_when: false
-      changed_when: false
-
-    - name: Force deploy application service (always try to deploy)
+    - name: Create or update application service
       command: >
+        {% if existing_service.stdout_lines | length > 1 %}
+        docker service update
+        --image {{ app_image | default('haffy/clo-fresva-app:latest') }}
+        {{ app_name | default('clo-fresva-app') }}
+        {% else %}
         docker service create
         --name {{ app_name | default('clo-fresva-app') }}
         --replicas {{ app_replicas | default(3) }}
@@ -121,10 +120,16 @@
         --publish {{ app_port | default(80) }}:80
         --env NODE_ENV=production
         --env LOAD_BALANCED=true
+        --env SERVICE_NAME=clo-fresva-app
+        --hostname="{{.Service.Name}}.{{.Task.Slot}}.{{.Task.ID}}"
         --label com.centurylinklabs.watchtower.enable=true
         --restart-condition on-failure
         --restart-max-attempts 3
+        --update-parallelism 1
+        --update-delay 10s
+        --update-failure-action rollback
         {{ app_image | default('haffy/clo-fresva-app:latest') }}
+        {% endif %}
       register: app_result
       changed_when: app_result.rc == 0
 
