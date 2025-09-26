@@ -67,50 +67,54 @@
   gather_facts: false
 
   tasks:
-    - name: Deploy or update Watchtower service
-      shell: |
-        if docker service ls --filter name={{ watchtower_name }} --format "{{ '{{' }}.Name{{ '}}' }}" | grep -q "{{ watchtower_name }}"; then
-          echo "Updating existing Watchtower service..."
-          docker service update \
-            --env-add WATCHTOWER_POLL_INTERVAL={{ watchtower_interval }} \
-            --env-add WATCHTOWER_CLEANUP=true \
-            --env-add WATCHTOWER_INCLUDE_RESTARTING=true \
-            --env-add WATCHTOWER_ROLLING_RESTART=true \
-            --env-add WATCHTOWER_LABEL_ENABLE=true \
-            --env-add WATCHTOWER_DEBUG=true \
-            --env-add WATCHTOWER_LOG_LEVEL=debug \
-            --env-add WATCHTOWER_TIMEOUT=60s \
-            --env-add WATCHTOWER_WARN_ON_HEAD_FAILURE=never \
-            --env-add WATCHTOWER_NO_RESTART=false \
-            --env-add WATCHTOWER_REVIVE_STOPPED=false \
-            --env-add WATCHTOWER_IGNORE_IMAGE_ID=true \
-            --env-add WATCHTOWER_IGNORE_IMAGE_SHA=true \
-            {{ watchtower_name }}
-        else
-          echo "Creating new Watchtower service..."
-          docker service create \
-            --name {{ watchtower_name }} \
-            --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock \
-            --constraint 'node.role==manager' \
-            --env WATCHTOWER_POLL_INTERVAL={{ watchtower_interval }} \
-            --env WATCHTOWER_CLEANUP=true \
-            --env WATCHTOWER_INCLUDE_RESTARTING=true \
-            --env WATCHTOWER_ROLLING_RESTART=true \
-            --env WATCHTOWER_LABEL_ENABLE=true \
-            --env WATCHTOWER_DEBUG=true \
-            --env WATCHTOWER_LOG_LEVEL=debug \
-            --env WATCHTOWER_TIMEOUT=60s \
-            --env WATCHTOWER_WARN_ON_HEAD_FAILURE=never \
-            --env WATCHTOWER_NO_RESTART=false \
-            --env WATCHTOWER_REVIVE_STOPPED=false \
-            --env WATCHTOWER_IGNORE_IMAGE_ID=true \
-            --env WATCHTOWER_IGNORE_IMAGE_SHA=true \
-            --label com.centurylinklabs.watchtower.enable=false \
-            --restart-condition on-failure \
-            --restart-max-attempts 3 \
-            containrrr/watchtower:latest
-        fi
+    - name: Check if Watchtower service already exists
+      command: docker service ls --filter name={{ watchtower_name }} --format "{{ '{{' }}.Name{{ '}}' }}"
+      register: watchtower_exists
+      failed_when: false
+      changed_when: false
+
+    - name: Deploy Watchtower service
+      command: >
+        docker service create
+        --name {{ watchtower_name }}
+        --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock
+        --constraint 'node.role==manager'
+        --env WATCHTOWER_POLL_INTERVAL={{ watchtower_interval }}
+        --env WATCHTOWER_CLEANUP=true
+        --env WATCHTOWER_INCLUDE_RESTARTING=true
+        --env WATCHTOWER_ROLLING_RESTART=true
+        --env WATCHTOWER_LABEL_ENABLE=true
+        --env WATCHTOWER_DEBUG=true
+        --env WATCHTOWER_LOG_LEVEL=debug
+        --env WATCHTOWER_TIMEOUT=60s
+        --env WATCHTOWER_WARN_ON_HEAD_FAILURE=never
+        --env WATCHTOWER_NO_RESTART=false
+        --env WATCHTOWER_REVIVE_STOPPED=false
+        --label com.centurylinklabs.watchtower.enable=false
+        --restart-condition on-failure
+        --restart-max-attempts 3
+        containrrr/watchtower:latest
       register: watchtower_result
+      when: watchtower_name not in watchtower_exists.stdout
+      failed_when: false
+
+    - name: Update existing Watchtower service with new configuration
+      command: >
+        docker service update
+        --env-add WATCHTOWER_POLL_INTERVAL={{ watchtower_interval }}
+        --env-add WATCHTOWER_CLEANUP=true
+        --env-add WATCHTOWER_INCLUDE_RESTARTING=true
+        --env-add WATCHTOWER_ROLLING_RESTART=true
+        --env-add WATCHTOWER_LABEL_ENABLE=true
+        --env-add WATCHTOWER_DEBUG=true
+        --env-add WATCHTOWER_LOG_LEVEL=debug
+        --env-add WATCHTOWER_TIMEOUT=60s
+        --env-add WATCHTOWER_WARN_ON_HEAD_FAILURE=never
+        --env-add WATCHTOWER_NO_RESTART=false
+        --env-add WATCHTOWER_REVIVE_STOPPED=false
+        {{ watchtower_name }}
+      register: watchtower_update_result
+      when: watchtower_name in watchtower_exists.stdout
       failed_when: false
 
     - name: Deploy or update application service
@@ -183,6 +187,22 @@
           Watchtower output: {{ watchtower_result.stdout | default('No output') }}
           App deployment result: {{ app_result.rc | default('N/A') }}
           App output: {{ app_result.stdout | default('No output') }}
+
+    - name: Remove problematic Watchtower environment variables
+      command: >
+        docker service update
+        --env-rm WATCHTOWER_IGNORE_IMAGE_ID
+        --env-rm WATCHTOWER_IGNORE_IMAGE_SHA
+        {{ watchtower_name }}
+      register: watchtower_cleanup
+      failed_when: false
+      changed_when: false
+
+    - name: Force Watchtower to check now (manual trigger)
+      command: docker service update --force {{ watchtower_name }}
+      register: watchtower_trigger
+      failed_when: false
+      changed_when: false
 
     - name: Display deployment summary
       debug:
