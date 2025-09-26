@@ -100,12 +100,34 @@
       when: watchtower_name not in watchtower_exists.stdout
       failed_when: false
 
+    - name: Update existing Watchtower service with new configuration
+      command: >
+        docker service update
+        --env-add WATCHTOWER_POLL_INTERVAL={{ watchtower_interval }}
+        --env-add WATCHTOWER_CLEANUP=true
+        --env-add WATCHTOWER_INCLUDE_RESTARTING=true
+        --env-add WATCHTOWER_ROLLING_RESTART=true
+        --env-add WATCHTOWER_LABEL_ENABLE=true
+        --env-add WATCHTOWER_DEBUG=true
+        --env-add WATCHTOWER_LOG_LEVEL=debug
+        --env-add WATCHTOWER_TIMEOUT=60s
+        --env-add WATCHTOWER_WARN_ON_HEAD_FAILURE=never
+        --env-add WATCHTOWER_NO_RESTART=false
+        --env-add WATCHTOWER_REVIVE_STOPPED=false
+        --env-add WATCHTOWER_IGNORE_IMAGE_ID=true
+        --env-add WATCHTOWER_IGNORE_IMAGE_SHA=true
+        {{ watchtower_name }}
+      register: watchtower_update_result
+      when: watchtower_name in watchtower_exists.stdout
+      failed_when: false
+
     - name: Debug Watchtower deployment
       debug:
         msg: |
           Watchtower exists check: {{ watchtower_exists.stdout }}
           Watchtower deployment needed: {{ watchtower_name not in watchtower_exists.stdout }}
-          Watchtower deployment result: {{ watchtower_result.rc | default('N/A - service already existed') }}
+          Watchtower create result: {{ watchtower_result.rc | default('N/A - service already existed') }}
+          Watchtower update result: {{ watchtower_update_result.rc | default('N/A - no update performed') }}
 
     - name: Check if app image exists
       command: docker manifest inspect {{ app_image }}
