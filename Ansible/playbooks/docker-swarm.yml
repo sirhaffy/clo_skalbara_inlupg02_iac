@@ -144,7 +144,7 @@
         --rollback-monitor 5s
         {{ app_name }}
       register: app_update_result
-      when: false  # Only run manually when needed - Watchtower handles image updates
+      when: existing_service.stdout_lines | length > 1  # Update existing service with new config
       failed_when: false
 
     - name: Docker Swarm Service Setup (first deployment)
