@@ -129,8 +129,10 @@
         --env-add LOAD_BALANCED=true
         --env-add SERVICE_NAME={{ app_service_name }}
         --env-add CONTAINER_NAME="{{ '{{' }}.Service.Name{{ '}}' }}.{{ '{{' }}.Task.Slot{{ '}}' }}.{{ '{{' }}.Task.ID{{ '}}' }}"
+        --env-add CONTAINER_ID="{{ '{{' }}.Task.ID{{ '}}' }}"
         --env-add NODE_NAME="{{ '{{' }}.Node.Hostname{{ '}}' }}"
         --env-add NODE_ID="{{ '{{' }}.Node.ID{{ '}}' }}"
+        --env-add TASK_SLOT="{{ '{{' }}.Task.Slot{{ '}}' }}"
         --update-parallelism 1
         --update-delay 30s
         --update-monitor 10s
@@ -156,8 +158,10 @@
         --env LOAD_BALANCED=true
         --env SERVICE_NAME={{ app_service_name }}
         --env CONTAINER_NAME="{{ '{{' }}.Service.Name{{ '}}' }}.{{ '{{' }}.Task.Slot{{ '}}' }}.{{ '{{' }}.Task.ID{{ '}}' }}"
+        --env CONTAINER_ID="{{ '{{' }}.Task.ID{{ '}}' }}"
         --env NODE_NAME="{{ '{{' }}.Node.Hostname{{ '}}' }}"
         --env NODE_ID="{{ '{{' }}.Node.ID{{ '}}' }}"
+        --env TASK_SLOT="{{ '{{' }}.Task.Slot{{ '}}' }}"
         --hostname="{{ '{{' }}.Service.Name{{ '}}' }}.{{ '{{' }}.Task.Slot{{ '}}' }}.{{ '{{' }}.Task.ID{{ '}}' }}"
         --label com.centurylinklabs.watchtower.enable=true
         --restart-condition on-failure
