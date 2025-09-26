@@ -277,8 +277,31 @@ jobs:
         ANSIBLE_STDOUT_CALLBACK: yaml
         AWS_REGION: ${{ env.AWS_REGION }}
       run: |
-        # Run the playbook - Watchtower will handle image updates automatically
-        ansible-playbook playbooks/docker-swarm.yml -i aws_ec2.yml -v
+        # Get API Gateway URL from multiple sources with fallback
+        cd ../Terraform
+
+        # Primary: Get from Terraform output
+        API_GATEWAY_URL=$(terraform output -raw api_gateway_url 2>/dev/null || echo "")
+
+        # Fallback: Get from AWS SSM Parameter Store if Terraform fails
+        if [ -z "$API_GATEWAY_URL" ]; then
+          echo "Terraform output not available, checking AWS SSM Parameter Store..."
+          API_GATEWAY_URL=$(aws ssm get-parameter --name "/app/api-gateway-url" --query "Parameter.Value" --output text 2>/dev/null || echo "")
+        fi
+
+        cd ../Ansible
+
+        if [ -n "$API_GATEWAY_URL" ]; then
+          echo "✅ Using API Gateway URL: $API_GATEWAY_URL"
+          # Run the playbook with API Gateway URL
+          ansible-playbook playbooks/docker-swarm.yml -i aws_ec2.yml -v \
+            -e "api_gateway_url_from_terraform=$API_GATEWAY_URL"
+        else
+          echo "⚠️  Warning: API Gateway URL not available from any source"
+          echo "   This may cause webbapp to fail connecting to AWS API"
+          # Run without API Gateway URL (will use hardcoded default)
+          ansible-playbook playbooks/docker-swarm.yml -i aws_ec2.yml -v
+        fi
 
     - name: Verify deployment
       working-directory: ./Ansible

@@ -133,6 +133,7 @@
         --env-add NODE_NAME="{{ '{{' }}.Node.Hostname{{ '}}' }}"
         --env-add NODE_ID="{{ '{{' }}.Node.ID{{ '}}' }}"
         --env-add TASK_SLOT="{{ '{{' }}.Task.Slot{{ '}}' }}"
+        --env-add API_GATEWAY_URL={{ api_gateway_url }}
         --update-parallelism 1
         --update-delay 30s
         --update-monitor 10s
@@ -162,6 +163,7 @@
         --env NODE_NAME="{{ '{{' }}.Node.Hostname{{ '}}' }}"
         --env NODE_ID="{{ '{{' }}.Node.ID{{ '}}' }}"
         --env TASK_SLOT="{{ '{{' }}.Task.Slot{{ '}}' }}"
+        --env API_GATEWAY_URL={{ api_gateway_url }}
         --hostname="{{ '{{' }}.Service.Name{{ '}}' }}.{{ '{{' }}.Task.Slot{{ '}}' }}.{{ '{{' }}.Task.ID{{ '}}' }}"
         --label com.centurylinklabs.watchtower.enable=true
         --restart-condition on-failure

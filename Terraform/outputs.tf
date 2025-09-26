@@ -25,6 +25,20 @@ output "api_gateway_url" {
   value       = module.lambda.api_gateway_url
 }
 
+# Store API Gateway URL in SSM Parameter Store for fallback access
+resource "aws_ssm_parameter" "api_gateway_url" {
+  name        = "/app/api-gateway-url"
+  description = "API Gateway URL for the application"
+  type        = "String"
+  value       = module.lambda.api_gateway_url
+
+  tags = {
+    Name        = "API Gateway URL"
+    Environment = var.environment
+    Project     = "clo-skalbara-upg02"
+  }
+}
+
 output "lambda_function_name" {
   description = "Name of the Lambda function"
   value       = module.lambda.lambda_function_name
