@@ -115,7 +115,8 @@ resource "aws_iam_role_policy" "lambda_policy" {
           "dynamodb:UpdateItem",
           "dynamodb:DeleteItem",
           "dynamodb:Scan",
-          "dynamodb:Query"
+          "dynamodb:Query",
+          "dynamodb:DescribeTable"
         ]
         Resource = aws_dynamodb_table.items.arn
       },
