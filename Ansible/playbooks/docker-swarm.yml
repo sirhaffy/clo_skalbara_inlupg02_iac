@@ -109,7 +109,7 @@
       changed_when: false
 
     - name: Check if app service already exists
-      command: docker service ls --filter name={{ app_name }} --format "table {{'{{'}}{{'}}'}}Name{{'{{'}}{{'}}'}}}"
+      command: docker service ls --filter name={{ app_name }} --format "{{ '{{' }}.Name{{ '}}' }}"
       register: existing_service
       failed_when: false
       changed_when: false
@@ -118,7 +118,7 @@
       debug:
         msg: |
           Deploying with image: {{ app_image }}
-          Service exists: {{ existing_service.stdout_lines | length > 1 }}
+          Service exists: {{ existing_service.stdout | length > 0 }}
           Strategy: Watchtower handles automatic updates of latest images
 
     - name: Update service only for initial deployment or manual changes (not image updates)
@@ -144,7 +144,7 @@
         --rollback-monitor 5s
         {{ app_name }}
       register: app_update_result
-      when: existing_service.stdout_lines | length > 1  # Update existing service with new config
+      when: existing_service.stdout | length > 0  # Update existing service with new config
       failed_when: false
 
     - name: Docker Swarm Service Setup (first deployment)
@@ -176,12 +176,12 @@
         --rollback-delay 10s
         {{ app_image }}
       register: app_create_result
-      when: existing_service.stdout_lines | length <= 1
+      when: existing_service.stdout | length == 0
       failed_when: false
 
     - name: Set deployment result
       set_fact:
-        app_result: "{{ app_update_result if (existing_service.stdout_lines | length > 1) else app_create_result if (existing_service.stdout_lines | length <= 1) else {'rc': 0, 'stdout': 'No update needed', 'stderr': '', 'changed': false} }}"
+        app_result: "{{ app_update_result if (existing_service.stdout | length > 0) else app_create_result if (existing_service.stdout | length == 0) else {'rc': 0, 'stdout': 'No update needed', 'stderr': '', 'changed': false} }}"
 
     - name: Wait for rolling update to complete
       command: docker service ps {{ app_name }} --filter "desired-state=running" --format "{{ '{{' }}.CurrentState{{ '}}' }}"
