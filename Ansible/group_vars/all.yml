@@ -23,10 +23,6 @@ app_service_name: "clo-fresva-app"
 # AWS API configuration
 api_gateway_url: "{{ api_gateway_url_from_terraform | default('https://your-api-gateway-url.amazonaws.com/prod') }}"
 
-# Watchtower configuration
-watchtower_name: "watchtower"
-watchtower_interval: 300  # Check every 5 minutes
-
 # Health check configuration
 health_endpoint: "/api/health"
 health_retries: 12

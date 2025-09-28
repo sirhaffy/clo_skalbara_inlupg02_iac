@@ -62,91 +62,27 @@
       debug:
         msg: "{{ swarm_nodes.stdout_lines }}"
 
-- name: Deploy Watchtower and Application Services
+- name: Deploy Application Services
   hosts: swarm_managers[0]
   gather_facts: false
 
   tasks:
-    - name: Check if Watchtower service already exists
-      command: docker service ls --filter name={{ watchtower_name }} --format "{{ '{{' }}.Name{{ '}}' }}"
-      register: watchtower_exists
+    - name: Check if application service already exists
+      command: docker service ls --filter name={{ app_name }} --format "{{ '{{' }}.Name{{ '}}' }}"
+      register: app_exists
       failed_when: false
       changed_when: false
 
-    - name: Deploy Watchtower service
-      command: >
-        docker service create
-        --name {{ watchtower_name }}
-        --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock
-        --constraint 'node.role==manager'
-        --env WATCHTOWER_POLL_INTERVAL={{ watchtower_interval }}
-        --env WATCHTOWER_CLEANUP=true
-        --env WATCHTOWER_INCLUDE_RESTARTING=true
-        --env WATCHTOWER_ROLLING_RESTART=true
-        --env WATCHTOWER_LABEL_ENABLE=true
-        --env WATCHTOWER_DEBUG=true
-        --env WATCHTOWER_LOG_LEVEL=debug
-        --env WATCHTOWER_TIMEOUT=60s
-        --env WATCHTOWER_WARN_ON_HEAD_FAILURE=never
-        --env WATCHTOWER_NO_RESTART=false
-        --env WATCHTOWER_REVIVE_STOPPED=false
-        --label com.centurylinklabs.watchtower.enable=false
-        --restart-condition on-failure
-        --restart-max-attempts 3
-        containrrr/watchtower:latest
-      register: watchtower_result
-      when: watchtower_name not in watchtower_exists.stdout
-      failed_when: false
-
-    - name: Update existing Watchtower service with new configuration
-      command: >
-        docker service update
-        --env-add WATCHTOWER_POLL_INTERVAL={{ watchtower_interval }}
-        --env-add WATCHTOWER_CLEANUP=true
-        --env-add WATCHTOWER_INCLUDE_RESTARTING=true
-        --env-add WATCHTOWER_ROLLING_RESTART=true
-        --env-add WATCHTOWER_LABEL_ENABLE=true
-        --env-add WATCHTOWER_DEBUG=true
-        --env-add WATCHTOWER_LOG_LEVEL=debug
-        --env-add WATCHTOWER_TIMEOUT=60s
-        --env-add WATCHTOWER_WARN_ON_HEAD_FAILURE=never
-        --env-add WATCHTOWER_NO_RESTART=false
-        --env-add WATCHTOWER_REVIVE_STOPPED=false
-        {{ watchtower_name }}
-      register: watchtower_update_result
-      when: watchtower_name in watchtower_exists.stdout
-      failed_when: false
-
-    - name: Deploy or update application service
+    - name: Deploy application service
       shell: |
-        if docker service ls --filter name={{ app_name }} --format "{{ '{{' }}.Name{{ '}}' }}" | grep -q "{{ app_name }}"; then
-          echo "Updating existing application service..."
+        if [[ "{{ app_name }}" =~ $(docker service ls --filter name={{ app_name }} --format "{{ '{{' }}.Name{{ '}}' }}") ]]; then
+          echo "Service {{ app_name }} already exists, updating..."
           docker service update \
             --image {{ app_image }} \
-            --env-add NODE_ENV=production \
-            --env-add LOAD_BALANCED=true \
-            --env-add SERVICE_NAME={{ app_service_name }} \
-            --env-add CONTAINER_NAME="{{ '{{' }}.Service.Name{{ '}}' }}.{{ '{{' }}.Task.Slot{{ '}}' }}.{{ '{{' }}.Task.ID{{ '}}' }}" \
-            --env-add CONTAINER_ID="{{ '{{' }}.Task.ID{{ '}}' }}" \
-            --env-add NODE_NAME="{{ '{{' }}.Node.Hostname{{ '}}' }}" \
-            --env-add NODE_ID="{{ '{{' }}.Node.ID{{ '}}' }}" \
-            --env-add TASK_SLOT="{{ '{{' }}.Task.Slot{{ '}}' }}" \
             --env-add API_GATEWAY_URL={{ api_gateway_url }} \
-            --label-add com.centurylinklabs.watchtower.enable=true \
-            --label-add com.centurylinklabs.watchtower.monitor-only=false \
-            --dns-add 8.8.8.8 \
-            --dns-add 1.1.1.1 \
-            --update-parallelism 1 \
-            --update-delay 30s \
-            --update-monitor 10s \
-            --update-failure-action rollback \
-            --update-max-failure-ratio 0.3 \
-            --rollback-parallelism 1 \
-            --rollback-delay 10s \
-            --rollback-monitor 5s \
             {{ app_name }}
         else
-          echo "Creating new application service..."
+          echo "Creating new service {{ app_name }}..."
           docker service create \
             --name {{ app_name }} \
             --replicas {{ app_replicas }} \
@@ -163,8 +99,6 @@
             --env TASK_SLOT="{{ '{{' }}.Task.Slot{{ '}}' }}" \
             --env API_GATEWAY_URL={{ api_gateway_url }} \
             --hostname="{{ '{{' }}.Service.Name{{ '}}' }}.{{ '{{' }}.Task.Slot{{ '}}' }}.{{ '{{' }}.Task.ID{{ '}}' }}" \
-            --label com.centurylinklabs.watchtower.enable=true \
-            --label com.centurylinklabs.watchtower.monitor-only=false \
             --dns 8.8.8.8 \
             --dns 1.1.1.1 \
             --restart-condition on-failure \
@@ -183,34 +117,15 @@
     - name: Debug deployment results
       debug:
         msg: |
-          Watchtower deployment result: {{ watchtower_result.rc | default('N/A') }}
-          Watchtower output: {{ watchtower_result.stdout | default('No output') }}
           App deployment result: {{ app_result.rc | default('N/A') }}
           App output: {{ app_result.stdout | default('No output') }}
-
-    - name: Remove problematic Watchtower environment variables
-      command: >
-        docker service update
-        --env-rm WATCHTOWER_IGNORE_IMAGE_ID
-        --env-rm WATCHTOWER_IGNORE_IMAGE_SHA
-        {{ watchtower_name }}
-      register: watchtower_cleanup
-      failed_when: false
-      changed_when: false
-
-    - name: Force Watchtower to check now (manual trigger)
-      command: docker service update --force {{ watchtower_name }}
-      register: watchtower_trigger
-      failed_when: false
-      changed_when: false
 
     - name: Display deployment summary
       debug:
         msg: |
           Deployment completed successfully!
-          - Watchtower service: {{ watchtower_name }}
           - Application service: {{ app_name }}
-          - Watchtower will check for updates every {{ watchtower_interval }}s
+          - Updates will be handled by GitHub Actions CI/CD
 
     - name: Show all services
       command: docker service ls

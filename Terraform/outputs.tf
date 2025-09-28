@@ -39,6 +39,46 @@ resource "aws_ssm_parameter" "api_gateway_url" {
   }
 }
 
+# Store Docker Swarm deployment configuration in SSM Parameter Store
+resource "aws_ssm_parameter" "swarm_manager_ip" {
+  name        = "/app/swarm-manager-ip"
+  description = "Docker Swarm manager private IP for deployment"
+  type        = "String"
+  value       = length(module.docker_swarm.swarm_manager_private_ips) > 0 ? module.docker_swarm.swarm_manager_private_ips[0] : "not-available"
+
+  tags = {
+    Name        = "Swarm Manager IP"
+    Environment = var.environment
+    Project     = "clo-skalbara-upg02"
+  }
+}
+
+resource "aws_ssm_parameter" "bastion_ip" {
+  name        = "/app/bastion-ip"
+  description = "Bastion host public IP for SSH proxy"
+  type        = "String"
+  value       = module.bastion.bastion_public_ip
+
+  tags = {
+    Name        = "Bastion IP"
+    Environment = var.environment
+    Project     = "clo-skalbara-upg02"
+  }
+}
+
+resource "aws_ssm_parameter" "docker_service_name" {
+  name        = "/app/docker-service-name"
+  description = "Docker Swarm service name for deployment updates"
+  type        = "String"
+  value       = "clo-fresva-app"
+
+  tags = {
+    Name        = "Docker Service Name"
+    Environment = var.environment
+    Project     = "clo-skalbara-upg02"
+  }
+}
+
 output "lambda_function_name" {
   description = "Name of the Lambda function"
   value       = module.lambda.lambda_function_name
