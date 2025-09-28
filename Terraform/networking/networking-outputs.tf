@@ -1,4 +1,4 @@
-# Make these outputs available to other modules.
+# Makes these outputs available to other modules.
 
 output "vpc_id" {
   description = "ID of the VPC"

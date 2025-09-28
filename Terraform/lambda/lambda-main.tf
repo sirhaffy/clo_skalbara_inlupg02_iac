@@ -58,7 +58,7 @@ resource "aws_ecr_lifecycle_policy" "api_lambda" {
 # DynamoDB Table - Free Tier Optimized
 resource "aws_dynamodb_table" "items" {
   name         = "${var.project_name}-items"
-  billing_mode = "PROVISIONED"  # Free tier: 25 WCU/RCU
+  billing_mode = "PROVISIONED"
   hash_key     = "Id"
 
   # Free tier limits

@@ -128,5 +128,3 @@ output "worker2_private_ip" {
   description = "Private IP of the second worker node"
   value       = length(module.docker_swarm.swarm_worker_private_ips) > 1 ? module.docker_swarm.swarm_worker_private_ips[1] : null
 }
-
-# Trigger

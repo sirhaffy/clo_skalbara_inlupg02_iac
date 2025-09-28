@@ -11,7 +11,7 @@ variable "environment" {
 variable "GH_ACTIONS_USER_NAME" {
   description = "Name of your existing GitHub Actions IAM user"
   type        = string
-  default     = "github-actions-user"  # Matchar din befintliga användare
+  default     = "github-actions-user"
 }
 
 variable "lambda_timeout" {
@@ -23,5 +23,5 @@ variable "lambda_timeout" {
 variable "lambda_memory_size" {
   description = "Lambda function memory size in MB"
   type        = number
-  default     = 128  # Free tier: up to 128MB
+  default     = 128
 }
