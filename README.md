@@ -7,9 +7,8 @@ Detta repo innehåller all kod för att automatisera och hantera infrastrukturen
 - **CI/CD**: GitHub Actions automatiserar hela flödet från kod till färdig infrastruktur.
 
 ## Kom igång
-1. Klona repot
-2. Sätt upp AWS credentials och SSH-nycklar
-3. Kör `terraform init && terraform apply` för att skapa infrastrukturen
-4. Kör `ansible-playbook` för att konfigurera servrar
+1. Klona repot.
+2. Sätt upp AWS credentials och SSH-nycklar.
+3. Allt uppsättning automatiskt i CI/CD-pipelinen, kör inte lokalt.
 
 All konfiguration är versionerad och reproducerbar. Se dokumentationen för detaljerad arkitektur.
