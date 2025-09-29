@@ -1,55 +1,15 @@
-# CLO Skalbara Uppgift 02 - Infrastructure as Code
+# IaC - Infrastructure as Code
 
-## Översikt
-Komplett AWS-infrastruktur för skalbar webbapplikation med Docker Swarm. Terraform skapar infrastrukturen, Ansible konfigurerar servrarna.
+Detta repo innehåller all kod för att automatisera och hantera infrastrukturen i AWS med Terraform och Ansible.
 
-## Arkitektur
-```
-Internet → ALB → Docker Swarm (3 noder) → DynamoDB ← Lambda API
-```
+- **Terraform**: Skapar VPC, subnets, EC2, ALB, NAT Gateway, Security Groups, Lambda, DynamoDB, S3 mm.
+- **Ansible**: Installerar och konfigurerar Docker Swarm på EC2-instanser, hanterar säkerhet och deployment.
+- **CI/CD**: GitHub Actions automatiserar hela flödet från kod till färdig infrastruktur.
 
-## Terraform
-Skapar AWS-resurser:
-- **VPC** med privata/publika subnets
-- **EC2-instanser** för Docker Swarm
-- **Application Load Balancer** för high availability
-- **Lambda + API Gateway** för backend API
-- **DynamoDB** för databas
-- **Security Groups** och IAM-roller
+## Kom igång
+1. Klona repot
+2. Sätt upp AWS credentials och SSH-nycklar
+3. Kör `terraform init && terraform apply` för att skapa infrastrukturen
+4. Kör `ansible-playbook` för att konfigurera servrar
 
-### Kommandon
-```bash
-terraform init
-terraform plan
-terraform apply
-terraform destroy
-```
-
-## Ansible
-Konfigurerar servrarna automatiskt:
-- **Docker-installation** och konfiguration
-- **Docker Swarm** initialisering (1 manager, 2 workers)
-- **Applikations-deployment** med 3 replicas
-- **Säkerhetskonfiguration** och brandvägg
-
-### Struktur
-```
-inventory/     - Server-definitioner
-group_vars/    - Konfiguration per grupp  
-playbooks/     - Huvudplaybooks
-roles/         - Återanvändbara roller
-```
-
-## CI/CD Pipeline
-GitHub Actions hanterar automatisk deployment:
-1. **Setup** - S3 + DynamoDB för Terraform state
-2. **Terraform** - Bygger AWS-infrastruktur
-3. **Ansible** - Konfigurerar Docker Swarm
-4. **Verification** - Kontrollerar deployment
-
-## Resultat
-Färdig skalbar infrastruktur med:
-- Hög tillgänglighet (3 replicas, load balancer)
-- Automatisk skalning (Lambda, DynamoDB)
-- Rolling updates utan driftstopp
-- Säker nätverkskonfiguration
+All konfiguration är versionerad och reproducerbar. Se dokumentationen för detaljerad arkitektur.
